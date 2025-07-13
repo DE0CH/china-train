@@ -99,6 +99,11 @@ def summarize(solutions):
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path)
+        if path.path == '/health':
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status": "ok"}')
         if path.path == f'/{PATH_TOKEN}/form':
             self.send_response(200)
             self.send_header("Content-type", "text/html")
