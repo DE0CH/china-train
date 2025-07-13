@@ -2,12 +2,16 @@ import requests
 import pandas
 from tabulate import tabulate
 from os import environ 
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from string import Template
+from urllib.parse import urlparse, parse_qs
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
 SECRET = environ['API_KEY']
+PATH_TOKEN = environ['PATH_TOKEN']
 
 def get_tickets(start, end, date):
 
@@ -62,39 +66,81 @@ def find_next(tickets, time, station):
     raise ValueError('No train left')
 
 def translate(word):
-    dict = {
-        '有': "Avail",
-        '无': 'None',
-    }
+    dict = {}
+    # dict = {
+    #     '有': "Avail",
+    #     '无': 'None',
+    # }
     return dict.get(word, word)
 
 def summarize(solutions):
     ans = []
     for (leg1, leg2) in solutions:
         n = {
-            'Departure Time': leg1['departuretime'],
-            'Arrival Time': leg2['arrivaltime'],
-            'Duration': time_minute(leg2['arrivaltime']) - time_minute(leg1['departuretime']),
-            'Transit Time': time_minute(leg2['departuretime']) - time_minute(leg1['arrivaltime']),
-            '1 Business': translate(leg1['numsw']),
-            '1 First Class': translate(leg1['numyd']),
-            '1 Second Class': translate(leg1['numed']),
-            '1 Standing': translate(leg1['numwz']),
-            '2 Business': translate(leg2['numsw']),
-            '2 First Class': translate(leg2['numyd']),
-            '2 Second Class': translate(leg2['numed']),
-            '2 Standing': translate(leg2['numwz']),
+            '出发时间': leg1['departuretime'],
+            '到达时间': leg2['arrivaltime'],
+            '时长': time_minute(leg2['arrivaltime']) - time_minute(leg1['departuretime']),
+            '中转时间': time_minute(leg2['departuretime']) - time_minute(leg1['arrivaltime']),
+            '1 商务': translate(leg1['numsw']),
+            '1 一等': translate(leg1['numyd']),
+            '1 二等': translate(leg1['numed']),
+            '1 站票': translate(leg1['numwz']),
+            '2 商务': translate(leg2['numsw']),
+            '2 一等': translate(leg2['numyd']),
+            '2 二等': translate(leg2['numed']),
+            '2 站票': translate(leg2['numwz']),
 
         }
         ans.append(n)
 
     return pandas.DataFrame(ans)
 
-def main():
-    start = '深圳坪山'
+    # Create a custom handler for the HTTP server
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        path = urlparse(self.path)
+        if path.path == f'/{PATH_TOKEN}/form':
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            # Write the HTML string to the response body
+            with open('form.html', 'r') as f:
+                self.wfile.write(f.read().encode('utf-8'))
+        elif path.path == f'/{PATH_TOKEN}/result':
+            qs = parse_qs(path.query)
+            html_solution = calculate_route(qs['route'][0], qs['date'][0])
+            d = {
+                'table': html_solution,
+            }
+            with open('results.html', 'r') as f:
+                src = Template(f.read())
+                result = src.substitute(d)
+            self.send_response(200)
+            # Set the content type to text/html
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            # Write the HTML string to the response body
+            self.wfile.write(result.encode('utf-8'))
+        else:
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b'404 Not Found')
+
+# Set up and start the server
+def run(server_class=HTTPServer, handler_class=SimpleHTTPRequestHandler, port=8000):
+    server_address = ('', port)
+    httpd = server_class(server_address, handler_class)
+    print(f"Serving on port {port}...")
+    httpd.serve_forever()
+        
+def calculate_route(route, date):
+    if route == '香港 到 坪山':
+        end = '深圳坪山'
+        start = '香港西九龙'
+    elif route == '坪山 到 香港':
+        start = '深圳坪山'
+        end = '香港西九龙'
     middle = '深圳北'
-    end = '香港西九龙'
-    date = '2025-06-30'
     transit_time = 10
 
     print("waiting for API...")
@@ -112,10 +158,15 @@ def main():
         except ValueError:
             continue
     ans = summarize(solutions)
+    html  = ans.to_html()
+    html = html.replace('class="dataframe"', 'class="table table-striped"').replace('<tr style="text-align: right;">', '<tr>')
+    return html
 
-    print(tabulate(ans, headers='keys', tablefmt='psql'))
+def main():
 
-    
+    run()
+
+
 if __name__ == '__main__':
     main()
 

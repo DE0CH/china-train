@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>车票查询</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-LN+7fdVzj6u52u30Kp6M/trliBMCMKTyK833zpbD+pXdCLuTusPj697FH4R/5mcr" crossorigin="anonymous">
+  </head>
+  <body>
+    
+    <div class="container">
+        <h1 class="mb-4">车票查询</h1>
+        <form action="./result" method="get">
+        <div class="mb-3">
+            <label class="form-label">路线</label>
+            <div class="form-check">
+            <input class="form-check-input" type="radio" name="route" id="hk-to-pingshan" value="香港 到 坪山" checked>
+            <label class="form-check-label" for="hk-to-pingshan">
+                香港 到 坪山
+            </label>
+            </div>
+            <div class="form-check">
+            <input class="form-check-input" type="radio" name="route" id="pingshan-to-hk" value="坪山 到 香港">
+            <label class="form-check-label" for="pingshan-to-hk">
+                坪山 到 香港
+            </label>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label for="date" class="form-label">出发日期</label>
+            <input type="date" class="form-control" id="date" name="date" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary">查询</button>
+        </form>
+    </div>
+    <script>
+    document.querySelector('form').addEventListener('submit', function (e) {
+        const submitButton = this.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+        submitButton.innerText = '查询中...'; // optional: change button text to "Searching..."
+    });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js" integrity="sha384-ndDqU0Gzau9qJ1lfW4pNLlhNTkCfHzAVBReH9diLvGRem5+R9g2FzA8ZGN954O5Q" crossorigin="anonymous"></script>
+  </body>
+</html>
