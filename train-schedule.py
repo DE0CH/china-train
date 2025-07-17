@@ -69,7 +69,7 @@ def time_diff(start, end):
 
 def find_next(tickets, time, station):
     for ticket in tickets:
-        if time_minute(ticket['departuretime']) >= time_minute(time) and ticket['station'] == station:
+        if time_minute(ticket['departuretime']) >= time_minute(time):
             return ticket
     raise ValueError('No train left')
 
