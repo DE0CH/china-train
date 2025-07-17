@@ -33,7 +33,15 @@ def get_tickets(start, end, date):
 
     # Ensure the response is decoded as UTF-8
     response.encoding = 'utf-8'
-    return response.json()
+    res = response.json()
+    res2 = []
+    for ticket in res['result']['list']:
+        if True:
+            if ticket['station'] == start and ticket['endstation'] == end:
+                res2.append(ticket)
+    res['result']['list'] = res2
+        
+    return res
 
 
 def time_minute(time):
