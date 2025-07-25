@@ -67,11 +67,13 @@ def time_diff(start, end):
     end = time_minute(end)
     return end - start
 
-def find_next(tickets, time, station):
+def find_next(tickets, time, safe_start2):
     for ticket in tickets:
-        if time_minute(ticket['departuretime']) >= time_minute(time):
-            return ticket
-    raise ValueError('No train left')
+        if time_minute(ticket['departuretime']) >= time_minute(safe_start2):
+            yield ticket
+            break
+        elif time_minute(ticket['departuretime']) >= time_minute(time):
+            yield ticket
 
 def translate(word):
     dict = {}
@@ -164,12 +166,9 @@ def calculate_route(route, date):
     solutions = []
     for ticket in leg1:
         end = ticket['arrivaltime']
-        start2 = minite_to_time(time_minute(end) + transit_time)
-        try: 
-            ticket2 = find_next(leg2, start2, middle)
+        safe_start2 = minite_to_time(time_minute(end) + transit_time)
+        for ticket2 in find_next(leg2, end, safe_start2):
             solutions.append((ticket, ticket2))
-        except ValueError:
-            continue
     ans = summarize(solutions)
     html  = ans.to_html()
     html = html.replace('class="dataframe"', 'class="table table-striped"').replace('<tr style="text-align: right;">', '<tr>')
