@@ -1,11 +1,9 @@
-"use client";
-
 import { useState, FormEvent } from "react";
 import type { TicketSummary } from "@/lib/train-api";
 
 type RouteKey = "香港 到 坪山" | "坪山 到 香港";
 
-export default function Home() {
+export default function App() {
   const [route, setRoute] = useState<RouteKey>("香港 到 坪山");
   const [date, setDate] = useState("");
   const [loading, setLoading] = useState(false);
@@ -43,7 +41,7 @@ export default function Home() {
   return (
     <main
       style={{
-        maxWidth: 720,
+        maxWidth: "720px",
         margin: "0 auto",
         padding: "2rem 1rem",
         minHeight: "100vh",

@@ -13,12 +13,12 @@ wheels/
 .env.local
 .env.*.local
 
-# Next.js
+# Build
+dist/
+
+# Next.js (legacy)
 .next/
 out/
-
-# Vercel
-.vercel
 
 # Dependencies
 node_modules/
