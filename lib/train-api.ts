@@ -69,6 +69,9 @@ export async function getTickets(
   const res = await fetch(url.toString(), {
     headers: { Authorization: `APPCODE ${apiKey}` },
   });
+  if (res.status === 401) {
+    throw new Error("API key 无效或已过期，请重新设置 (401 Unauthorized)");
+  }
   const data = (await res.json()) as {
     result?: { list?: TrainTicket[] };
   };
