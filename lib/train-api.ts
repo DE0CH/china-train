@@ -40,19 +40,23 @@ function translate(word: string): string {
   return word;
 }
 
-function findNext(
+function* findNext(
   tickets: TrainTicket[],
   endTime: string,
   safeStart2: string
-): TrainTicket | undefined {
-  const endMin = timeMinute(endTime);
+): Generator<TrainTicket> {
+  const timeMin = timeMinute(endTime);
   const safeMin = timeMinute(safeStart2);
   for (const ticket of tickets) {
     const dep = timeMinute(ticket.departuretime);
-    if (dep >= safeMin) return ticket;
-    if (dep >= endMin) return ticket;
+    if (dep >= safeMin) {
+      yield ticket;
+      return;
+    }
+    if (dep >= timeMin) {
+      yield ticket;
+    }
   }
-  return undefined;
 }
 
 export async function getTickets(
@@ -91,23 +95,23 @@ export function calculateRoute(
   for (const ticket of leg1) {
     const endTime = ticket.arrivaltime;
     const safeStart2 = minuteToTime(timeMinute(endTime) + TRANSIT_MINUTES);
-    const ticket2 = findNext(leg2, endTime, safeStart2);
-    if (!ticket2) continue;
-    solutions.push({
-      出发时间: ticket.departuretime,
-      到达时间: ticket2.arrivaltime,
-      时长: timeMinute(ticket2.arrivaltime) - timeMinute(ticket.departuretime),
-      中转时间:
-        timeMinute(ticket2.departuretime) - timeMinute(ticket.arrivaltime),
-      "1 商务": translate(ticket.numsw),
-      "1 一等": translate(ticket.numyd),
-      "1 二等": translate(ticket.numed),
-      "1 站票": translate(ticket.numwz),
-      "2 商务": translate(ticket2.numsw),
-      "2 一等": translate(ticket2.numyd),
-      "2 二等": translate(ticket2.numed),
-      "2 站票": translate(ticket2.numwz),
-    });
+    for (const ticket2 of findNext(leg2, endTime, safeStart2)) {
+      solutions.push({
+        出发时间: ticket.departuretime,
+        到达时间: ticket2.arrivaltime,
+        时长: timeMinute(ticket2.arrivaltime) - timeMinute(ticket.departuretime),
+        中转时间:
+          timeMinute(ticket2.departuretime) - timeMinute(ticket.arrivaltime),
+        "1 商务": translate(ticket.numsw),
+        "1 一等": translate(ticket.numyd),
+        "1 二等": translate(ticket.numed),
+        "1 站票": translate(ticket.numwz),
+        "2 商务": translate(ticket2.numsw),
+        "2 一等": translate(ticket2.numyd),
+        "2 二等": translate(ticket2.numed),
+        "2 站票": translate(ticket2.numwz),
+      });
+    }
   }
   return solutions;
 }
