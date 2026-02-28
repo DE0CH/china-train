@@ -1,38 +1,34 @@
-import { useState, FormEvent, useEffect } from "react";
+import { useState, FormEvent } from "react";
 import { fetchRoute, type TicketSummary, type RouteKey } from "@/lib/train-api";
-
-const API_KEY_STORAGE = "china-train-api-key";
+import { getApiKeyFromCookie, clearApiKeyCookie } from "@/lib/cookies";
+import SetupPage from "./SetupPage";
 
 export default function App() {
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState(() =>
+    typeof window !== "undefined" ? getApiKeyFromCookie() : ""
+  );
   const [route, setRoute] = useState<RouteKey>("香港 到 坪山");
   const [date, setDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<TicketSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const stored = localStorage.getItem(API_KEY_STORAGE);
-    if (stored) setApiKey(stored);
-  }, []);
-
-  useEffect(() => {
-    if (apiKey) localStorage.setItem(API_KEY_STORAGE, apiKey);
-  }, [apiKey]);
+  if (!apiKey) {
+    return (
+      <SetupPage
+        onSaved={() => setApiKey(getApiKeyFromCookie())}
+      />
+    );
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!date.trim()) return;
-    const key = apiKey.trim();
-    if (!key) {
-      setError("请先填写您的 API Key（APPCODE）");
-      return;
-    }
     setLoading(true);
     setError(null);
     setResults(null);
     try {
-      const data = await fetchRoute(route, date, key);
+      const data = await fetchRoute(route, date, apiKey);
       setResults(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error");
@@ -56,7 +52,27 @@ export default function App() {
         minHeight: "100vh",
       }}
     >
-      <h1 style={{ marginBottom: "1.5rem", fontSize: "1.75rem" }}>车票查询</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
+        <h1 style={{ margin: 0, fontSize: "1.75rem" }}>车票查询</h1>
+        <button
+          type="button"
+          onClick={() => {
+            clearApiKeyCookie();
+            setApiKey("");
+          }}
+          style={{
+            padding: "0.4rem 0.75rem",
+            fontSize: "0.9rem",
+            color: "#666",
+            background: "transparent",
+            border: "1px solid #ccc",
+            borderRadius: 6,
+            cursor: "pointer",
+          }}
+        >
+          退出
+        </button>
+      </div>
 
       <form
         onSubmit={handleSubmit}
@@ -67,38 +83,6 @@ export default function App() {
           marginBottom: "2rem",
         }}
       >
-        <div>
-          <label
-            htmlFor="apiKey"
-            style={{
-              display: "block",
-              marginBottom: "0.5rem",
-              fontWeight: 500,
-            }}
-          >
-            API Key (APPCODE)
-          </label>
-          <input
-            id="apiKey"
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="您的阿里云市场 APPCODE"
-            autoComplete="off"
-            style={{
-              width: "100%",
-              maxWidth: 360,
-              padding: "0.5rem 0.75rem",
-              fontSize: "1rem",
-              border: "1px solid #ccc",
-              borderRadius: 6,
-            }}
-          />
-          <p style={{ marginTop: "0.25rem", fontSize: "0.85rem", color: "#666" }}>
-            从 <a href="https://market.aliyun.com/products/57126001/cmapi028426.html" target="_blank" rel="noopener noreferrer">阿里云 API 市场</a> 获取，仅保存在本地浏览器中
-          </p>
-        </div>
-
         <div>
           <label
             style={{
