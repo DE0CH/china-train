@@ -10,3 +10,15 @@ wheels/
 .venv
 
 .env
+.env.local
+.env.*.local
+
+# Next.js
+.next/
+out/
+
+# Vercel
+.vercel
+
+# Dependencies
+node_modules/
