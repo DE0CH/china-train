@@ -37,11 +37,7 @@ export default function App() {
     }
   }
 
-  const formatDuration = (minutes: number) => {
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return `${h}小时${m}分`;
-  };
+  const formatDuration = (minutes: number) => `${minutes}`;
 
   return (
     <main
