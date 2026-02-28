@@ -1,6 +1,6 @@
 # china-train
 
-Train ticket search for **Hong Kong ↔ Ping Shan** (via Shenzhen North). Built with Next.js (React + TypeScript) for deployment on Vercel.
+Train ticket search for **Hong Kong ↔ Ping Shan** (via Shenzhen North). A client-only wrapper around the [jisutrain API](https://jisutrain.market.alicloudapi.com): you provide your own API key and the app calls the upstream API from your browser, then computes and displays transfer options.
 
 ## Setup
 
@@ -10,24 +10,19 @@ Train ticket search for **Hong Kong ↔ Ping Shan** (via Shenzhen North). Built 
    npm install
    ```
 
-2. Copy `.env.example` to `.env.local` and set your train API key:
-
-   ```bash
-   cp .env.example .env.local
-   ```
-
-   Add your Alibaba Cloud API Marketplace APPCODE as `API_KEY` (for [jisutrain API](https://jisutrain.market.alicloudapi.com)).
-
-3. Run locally:
+2. Run locally:
 
    ```bash
    npm run dev
    ```
 
-   Open [http://localhost:3000](http://localhost:3000).
+   Open [http://localhost:5173](http://localhost:5173) (or the URL Vite prints).
 
-## Deploy on Vercel
+3. Get an API key (APPCODE) from [Alibaba Cloud API Marketplace](https://market.aliyun.com/products/57126001/cmapi028426.html) and enter it in the app. It is stored only in your browser (localStorage). If the upstream API blocks browser requests (CORS), you may need to use a CORS proxy or run the app in an environment that allows it.
 
-1. Push the repo to GitHub and import the project in [Vercel](https://vercel.com).
-2. In the project **Settings → Environment Variables**, add `API_KEY` with your APPCODE.
-3. Deploy. The API route runs server-side so your key stays secret.
+## Build & deploy
+
+- **Build:** `npm run build` → static files in `dist/`
+- **Preview:** `npm run preview` to serve the built app locally.
+
+Deploy the `dist/` folder to any static host (Vercel, Netlify, GitHub Pages, etc.). No server or environment variables are required; each user uses their own API key in the app.
