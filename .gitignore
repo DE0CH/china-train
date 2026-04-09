@@ -23,3 +23,4 @@ out/
 # Dependencies
 node_modules/
 .vercel
+.vite
