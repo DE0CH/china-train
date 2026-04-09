@@ -116,10 +116,10 @@ export function calculateRoute(
   return solutions;
 }
 
-export type RouteKey = "香港 到 坪山" | "坪山 到 香港";
+export type RouteKey = "香港西九龙 到 深圳坪山" | "深圳坪山 到 香港西九龙";
 
 export function getStations(route: RouteKey): { start: string; end: string } {
-  if (route === "香港 到 坪山") {
+  if (route === "香港西九龙 到 深圳坪山") {
     return { start: "香港西九龙", end: "深圳坪山" };
   }
   return { start: "深圳坪山", end: "香港西九龙" };

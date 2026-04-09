@@ -149,10 +149,10 @@ def run(server_class=HTTPServer, handler_class=SimpleHTTPRequestHandler, port=80
     httpd.serve_forever()
         
 def calculate_route(route, date):
-    if route == '香港 到 坪山':
+    if route == '香港西九龙 到 深圳坪山':
         end = '深圳坪山'
         start = '香港西九龙'
-    elif route == '坪山 到 香港':
+    elif route == '深圳坪山 到 香港西九龙':
         start = '深圳坪山'
         end = '香港西九龙'
     middle = '深圳北'

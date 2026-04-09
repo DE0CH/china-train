@@ -7,7 +7,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState(() =>
     typeof window !== "undefined" ? getApiKeyFromCookie() : ""
   );
-  const [route, setRoute] = useState<RouteKey>("香港 到 坪山");
+  const [route, setRoute] = useState<RouteKey>("香港西九龙 到 深圳坪山");
   const [date, setDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<TicketSummary[] | null>(null);
@@ -94,21 +94,21 @@ export default function App() {
               <input
                 type="radio"
                 name="route"
-                value="香港 到 坪山"
-                checked={route === "香港 到 坪山"}
-                onChange={() => setRoute("香港 到 坪山")}
+                value="香港西九龙 到 深圳坪山"
+                checked={route === "香港西九龙 到 深圳坪山"}
+                onChange={() => setRoute("香港西九龙 到 深圳坪山")}
               />
-              香港 到 坪山
+              香港西九龙 到 深圳坪山
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <input
                 type="radio"
                 name="route"
-                value="坪山 到 香港"
-                checked={route === "坪山 到 香港"}
-                onChange={() => setRoute("坪山 到 香港")}
+                value="深圳坪山 到 香港西九龙"
+                checked={route === "深圳坪山 到 香港西九龙"}
+                onChange={() => setRoute("深圳坪山 到 香港西九龙")}
               />
-              坪山 到 香港
+              深圳坪山 到 香港
             </label>
           </div>
         </div>
