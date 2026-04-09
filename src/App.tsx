@@ -108,7 +108,7 @@ export default function App() {
                 checked={route === "深圳坪山 到 香港西九龙"}
                 onChange={() => setRoute("深圳坪山 到 香港西九龙")}
               />
-              深圳坪山 到 香港
+              深圳坪山 到 香港西九龙
             </label>
           </div>
         </div>
