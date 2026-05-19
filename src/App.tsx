@@ -11,6 +11,7 @@ export default function App() {
   const [transfer, setTransfer] = useState("深圳北");
   const [end, setEnd] = useState("深圳坪山");
   const [date, setDate] = useState("");
+  const [transitMinutes, setTransitMinutes] = useState(10);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<TicketSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +31,7 @@ export default function App() {
     setError(null);
     setResults(null);
     try {
-      const data = await fetchRoute(start, transfer, end, date, apiKey);
+      const data = await fetchRoute(start, transfer, end, date, apiKey, transitMinutes);
       setResults(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error");
@@ -188,31 +189,52 @@ export default function App() {
           </div>
         </div>
 
-        <div>
-          <label
-            htmlFor="date"
-            style={{
-              display: "block",
-              marginBottom: "0.5rem",
-              fontWeight: 500,
-            }}
-          >
-            出发日期
-          </label>
-          <input
-            id="date"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            required
-            className="date-input"
-            style={{
-              padding: "0.5rem 0.75rem",
-              fontSize: "1rem",
-              border: "1px solid #ccc",
-              borderRadius: 6,
-            }}
-          />
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div>
+            <label
+              htmlFor="date"
+              style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}
+            >
+              出发日期
+            </label>
+            <input
+              id="date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+              className="date-input"
+              style={{
+                padding: "0.5rem 0.75rem",
+                fontSize: "1rem",
+                border: "1px solid #ccc",
+                borderRadius: 6,
+              }}
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="transitMinutes"
+              style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}
+            >
+              最短换乘时间（分钟）
+            </label>
+            <input
+              id="transitMinutes"
+              type="number"
+              min={0}
+              max={120}
+              value={transitMinutes}
+              onChange={(e) => setTransitMinutes(Math.max(0, parseInt(e.target.value) || 0))}
+              style={{
+                width: 80,
+                padding: "0.5rem 0.75rem",
+                fontSize: "1rem",
+                border: "1px solid #ccc",
+                borderRadius: 6,
+              }}
+            />
+          </div>
         </div>
 
         <button

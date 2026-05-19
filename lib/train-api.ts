@@ -64,16 +64,18 @@ function* findNext(
   }
 }
 
-export async function getTickets(
+// Returns null if either station is unrecognized (API status 202), throws on real errors.
+async function fetchTicketsRaw(
   start: string,
   end: string,
   date: string,
   apiKey: string
-): Promise<TrainTicket[]> {
+): Promise<TrainTicket[] | null> {
   const url = new URL("https://jisutrain.market.alicloudapi.com/train/ticket");
   url.searchParams.set("date", date);
   url.searchParams.set("start", start);
   url.searchParams.set("end", end);
+  url.searchParams.set("enable_booking", "2");
 
   const res = await fetch(url.toString(), {
     headers: { Authorization: `APPCODE ${apiKey}` },
@@ -82,24 +84,36 @@ export async function getTickets(
     throw new Error("API key 无效或已过期，请重新设置 (401 Unauthorized)");
   }
   const data = (await res.json()) as {
-    result?: { list?: TrainTicket[] };
+    status?: string;
+    result?: { list?: TrainTicket[] } | string;
   };
-  const list = data?.result?.list ?? [];
+  if (data.status === "202") return null;
+  const list = (data.result as { list?: TrainTicket[] })?.list ?? [];
   return list.filter(
     (t) => t.station === start && t.endstation === end
   ) as TrainTicket[];
 }
 
-const TRANSIT_MINUTES = 10;
+export async function getTickets(
+  start: string,
+  end: string,
+  date: string,
+  apiKey: string
+): Promise<TrainTicket[]> {
+  const result = await fetchTicketsRaw(start, end, date, apiKey);
+  if (result === null) throw new Error(`站名无效：「${start}」或「${end}」不存在，请检查输入`);
+  return result;
+}
 
 export function calculateRoute(
   leg1: TrainTicket[],
-  leg2: TrainTicket[]
+  leg2: TrainTicket[],
+  transitMinutes: number
 ): TicketSummary[] {
   const solutions: TicketSummary[] = [];
   for (const ticket of leg1) {
     const endTime = ticket.arrivaltime;
-    const safeStart2 = minuteToTime(timeMinute(endTime) + TRANSIT_MINUTES);
+    const safeStart2 = minuteToTime(timeMinute(endTime) + transitMinutes);
     for (const ticket2 of findNext(leg2, endTime, safeStart2)) {
       solutions.push({
         出发时间: ticket.departuretime,
@@ -129,11 +143,32 @@ export async function fetchRoute(
   transfer: string,
   end: string,
   date: string,
-  apiKey: string
+  apiKey: string,
+  transitMinutes: number = 10
 ): Promise<TicketSummary[]> {
   const [leg1, leg2] = await Promise.all([
-    getTickets(start, transfer, date, apiKey),
-    getTickets(transfer, end, date, apiKey),
+    fetchTicketsRaw(start, transfer, date, apiKey),
+    fetchTicketsRaw(transfer, end, date, apiKey),
   ]);
-  return calculateRoute(leg1, leg2);
+
+  if (leg1 !== null && leg2 !== null) return calculateRoute(leg1, leg2, transitMinutes);
+
+  if (leg1 === null && leg2 !== null) {
+    // transfer is valid (leg2 worked), so start is the bad one
+    throw new Error(`站名无效：「${start}」不存在，请检查输入`);
+  }
+
+  if (leg1 !== null && leg2 === null) {
+    // transfer is valid (leg1 worked), so end is the bad one
+    throw new Error(`站名无效：「${end}」不存在，请检查输入`);
+  }
+
+  // Both legs failed — try start→end directly to see if transfer is the only problem
+  const direct = await fetchTicketsRaw(start, end, date, apiKey);
+  if (direct !== null) {
+    throw new Error(`站名无效：「${transfer}」不存在，请检查输入`);
+  }
+
+  // All three lookups failed — more than one station is wrong, give up
+  throw new Error("多个站名无效，请检查出发站、中转站和到达站");
 }
