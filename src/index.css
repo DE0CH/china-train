@@ -37,6 +37,13 @@ a {
   align-self: flex-start;
 }
 
+.date-transit-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
 @media (max-width: 480px) {
   .station-grid {
     flex-direction: column;
@@ -48,6 +55,15 @@ a {
 
   .date-input {
     max-width: unset;
+    width: 100%;
+  }
+
+  .date-transit-row {
+    flex-direction: column;
+  }
+
+  .date-transit-row > div {
+    width: 100%;
   }
 
   .submit-btn {

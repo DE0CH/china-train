@@ -144,7 +144,7 @@ export async function fetchRoute(
   end: string,
   date: string,
   apiKey: string,
-  transitMinutes: number = 10
+  transitMinutes: number = 8,
 ): Promise<TicketSummary[]> {
   const [leg1, leg2] = await Promise.all([
     fetchTicketsRaw(start, transfer, date, apiKey),

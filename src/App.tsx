@@ -11,7 +11,8 @@ export default function App() {
   const [transfer, setTransfer] = useState("深圳北");
   const [end, setEnd] = useState("深圳坪山");
   const [date, setDate] = useState("");
-  const [transitMinutes, setTransitMinutes] = useState(10);
+  const [transitInput, setTransitInput] = useState("8");
+  const transitMinutes = Math.max(0, parseInt(transitInput) || 0);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<TicketSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -189,7 +190,7 @@ export default function App() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "flex-end" }}>
+        <div className="date-transit-row">
           <div>
             <label
               htmlFor="date"
@@ -221,11 +222,10 @@ export default function App() {
             </label>
             <input
               id="transitMinutes"
-              type="number"
-              min={0}
-              max={120}
-              value={transitMinutes}
-              onChange={(e) => setTransitMinutes(Math.max(0, parseInt(e.target.value) || 0))}
+              type="text"
+              inputMode="numeric"
+              value={transitInput}
+              onChange={(e) => setTransitInput(e.target.value)}
               style={{
                 width: 80,
                 padding: "0.5rem 0.75rem",
