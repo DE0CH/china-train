@@ -7,6 +7,7 @@ export interface TrainTicket {
   numyd: string;
   numed: string;
   numwz: string;
+  trainno?: string;
   [key: string]: unknown;
 }
 
@@ -15,6 +16,10 @@ export interface TicketSummary {
   到达时间: string;
   时长: number;
   中转时间: number;
+  "1 到达": string;
+  "2 出发": string;
+  "1 车次": string;
+  "2 车次": string;
   "1 商务": string;
   "1 一等": string;
   "1 二等": string;
@@ -100,8 +105,11 @@ export function calculateRoute(
         出发时间: ticket.departuretime,
         到达时间: ticket2.arrivaltime,
         时长: timeMinute(ticket2.arrivaltime) - timeMinute(ticket.departuretime),
-        中转时间:
-          timeMinute(ticket2.departuretime) - timeMinute(ticket.arrivaltime),
+        中转时间: timeMinute(ticket2.departuretime) - timeMinute(ticket.arrivaltime),
+        "1 到达": ticket.arrivaltime,
+        "2 出发": ticket2.departuretime,
+        "1 车次": ticket.trainno ?? "",
+        "2 车次": ticket2.trainno ?? "",
         "1 商务": translate(ticket.numsw),
         "1 一等": translate(ticket.numyd),
         "1 二等": translate(ticket.numed),

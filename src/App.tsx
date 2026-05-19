@@ -39,7 +39,11 @@ export default function App() {
     }
   }
 
-  const formatDuration = (minutes: number) => `${minutes}`;
+  const formatDuration = (minutes: number) => {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return h > 0 ? `${h}小时${m}分` : `${m}分`;
+  };
 
   const PRESETS = [
     { label: "西九龙 → 坪山", start: "香港西九龙", transfer: "深圳北", end: "深圳坪山" },
@@ -250,83 +254,84 @@ export default function App() {
           {results.length === 0 ? (
             <p style={{ color: "#666" }}>暂无符合条件的车次。</p>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: "0.9rem",
-                }}
-              >
-                <thead>
-                  <tr style={{ borderBottom: "2px solid #dee2e6" }}>
-                    <th style={{ padding: "0.75rem", textAlign: "left" }}>
-                      出发时间
-                    </th>
-                    <th style={{ padding: "0.75rem", textAlign: "left" }}>
-                      到达时间
-                    </th>
-                    <th style={{ padding: "0.75rem", textAlign: "left" }}>
-                      时长
-                    </th>
-                    <th style={{ padding: "0.75rem", textAlign: "left" }}>
-                      中转时间
-                    </th>
-                    <th style={{ padding: "0.75rem", textAlign: "left" }}>
-                      1 商务
-                    </th>
-                    <th style={{ padding: "0.75rem", textAlign: "left" }}>
-                      1 一等
-                    </th>
-                    <th style={{ padding: "0.75rem", textAlign: "left" }}>
-                      1 二等
-                    </th>
-                    <th style={{ padding: "0.75rem", textAlign: "left" }}>
-                      1 站票
-                    </th>
-                    <th style={{ padding: "0.75rem", textAlign: "left" }}>
-                      2 商务
-                    </th>
-                    <th style={{ padding: "0.75rem", textAlign: "left" }}>
-                      2 一等
-                    </th>
-                    <th style={{ padding: "0.75rem", textAlign: "left" }}>
-                      2 二等
-                    </th>
-                    <th style={{ padding: "0.75rem", textAlign: "left" }}>
-                      2 站票
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((row, i) => (
-                    <tr
-                      key={i}
-                      style={{
-                        borderBottom: "1px solid #dee2e6",
-                        background: i % 2 === 1 ? "#f8f9fa" : undefined,
-                      }}
-                    >
-                      <td style={{ padding: "0.75rem" }}>{row["出发时间"]}</td>
-                      <td style={{ padding: "0.75rem" }}>{row["到达时间"]}</td>
-                      <td style={{ padding: "0.75rem" }}>
-                        {formatDuration(row["时长"])}
-                      </td>
-                      <td style={{ padding: "0.75rem" }}>
-                        {formatDuration(row["中转时间"])}
-                      </td>
-                      <td style={{ padding: "0.75rem" }}>{row["1 商务"]}</td>
-                      <td style={{ padding: "0.75rem" }}>{row["1 一等"]}</td>
-                      <td style={{ padding: "0.75rem" }}>{row["1 二等"]}</td>
-                      <td style={{ padding: "0.75rem" }}>{row["1 站票"]}</td>
-                      <td style={{ padding: "0.75rem" }}>{row["2 商务"]}</td>
-                      <td style={{ padding: "0.75rem" }}>{row["2 一等"]}</td>
-                      <td style={{ padding: "0.75rem" }}>{row["2 二等"]}</td>
-                      <td style={{ padding: "0.75rem" }}>{row["2 站票"]}</td>
-                    </tr>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {results.map((row, i) => (
+                <div
+                  key={i}
+                  style={{
+                    background: "#fff",
+                    border: "1px solid #e8e8e8",
+                    borderRadius: 12,
+                    padding: "1rem",
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+                  }}
+                >
+                  {/* Times row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                    <div style={{ minWidth: 56 }}>
+                      <div style={{ fontSize: "1.6rem", fontWeight: 700, lineHeight: 1 }}>{row["出发时间"]}</div>
+                      <div style={{ fontSize: "0.8rem", color: "#888", marginTop: 2 }}>{start}</div>
+                    </div>
+
+                    <div style={{ flex: 1, textAlign: "center" }}>
+                      <div style={{ fontSize: "0.8rem", color: "#f60", marginBottom: 4 }}>
+                        全程{formatDuration(row["时长"])}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <div style={{ flex: 1, height: 1, background: "#ddd" }} />
+                        <span style={{
+                          fontSize: "0.75rem",
+                          padding: "2px 8px",
+                          border: "1px solid #ccc",
+                          borderRadius: 20,
+                          whiteSpace: "nowrap",
+                          background: "#fafafa",
+                        }}>
+                          {transfer}
+                        </span>
+                        <div style={{ flex: 1, height: 1, background: "#ddd" }} />
+                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "#888", marginTop: 4 }}>
+                        同站换乘{formatDuration(row["中转时间"])}
+                      </div>
+                    </div>
+
+                    <div style={{ minWidth: 56, textAlign: "right" }}>
+                      <div style={{ fontSize: "1.6rem", fontWeight: 700, lineHeight: 1 }}>{row["到达时间"]}</div>
+                      <div style={{ fontSize: "0.8rem", color: "#888", marginTop: 2 }}>{end}</div>
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div style={{ borderTop: "1px solid #f0f0f0", margin: "0.75rem 0" }} />
+
+                  {/* Ticket availability */}
+                  {[
+                    { leg: "1程", sw: row["1 商务"], yd: row["1 一等"], ed: row["1 二等"], wz: row["1 站票"], trainno: row["1 车次"] },
+                    { leg: "2程", sw: row["2 商务"], yd: row["2 一等"], ed: row["2 二等"], wz: row["2 站票"], trainno: row["2 车次"] },
+                  ].map(({ leg, sw, yd, ed, wz, trainno }) => (
+                    <div key={leg} style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", fontSize: "0.85rem", marginBottom: "0.35rem" }}>
+                      <span style={{ color: "#888", minWidth: 28 }}>{leg}</span>
+                      {trainno && (
+                        <span style={{
+                          fontSize: "0.75rem",
+                          background: "#f5f5f5",
+                          border: "1px solid #ddd",
+                          borderRadius: 4,
+                          padding: "1px 5px",
+                          fontFamily: "monospace",
+                        }}>{trainno}</span>
+                      )}
+                      <span style={{ marginLeft: "auto", display: "flex", gap: "1rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        <span>二等 <b>{ed}</b></span>
+                        <span>一等 <b>{yd}</b></span>
+                        <span>商务 <b>{sw}</b></span>
+                        <span>无座 <b>{wz}</b></span>
+                      </span>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              ))}
             </div>
           )}
         </section>
