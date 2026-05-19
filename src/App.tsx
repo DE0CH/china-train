@@ -204,7 +204,6 @@ export default function App() {
               value={date}
               onChange={(e) => setDate(e.target.value)}
               required
-              className="date-input"
               style={{
                 padding: "0.5rem 0.75rem",
                 fontSize: "1rem",

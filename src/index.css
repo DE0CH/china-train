@@ -28,11 +28,6 @@ a {
   min-width: 140px;
 }
 
-.date-input {
-  width: 100%;
-  max-width: 240px;
-}
-
 .submit-btn {
   align-self: flex-start;
 }
@@ -53,12 +48,7 @@ a {
     min-width: unset;
   }
 
-  .date-input {
-    max-width: unset;
-    width: 100%;
-  }
-
-  .date-transit-row {
+.date-transit-row {
     flex-direction: column;
   }
 
