@@ -1,5 +1,5 @@
 import { useState, FormEvent } from "react";
-import { fetchRoute, type TicketSummary, type RouteKey } from "@/lib/train-api";
+import { fetchRoute, type TicketSummary } from "@/lib/train-api";
 import { getApiKeyFromCookie, clearApiKeyCookie } from "@/lib/cookies";
 import SetupPage from "./SetupPage";
 
@@ -7,7 +7,9 @@ export default function App() {
   const [apiKey, setApiKey] = useState(() =>
     typeof window !== "undefined" ? getApiKeyFromCookie() : ""
   );
-  const [route, setRoute] = useState<RouteKey>("香港西九龙 到 深圳坪山");
+  const [start, setStart] = useState("香港西九龙");
+  const [transfer, setTransfer] = useState("深圳北");
+  const [end, setEnd] = useState("深圳坪山");
   const [date, setDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<TicketSummary[] | null>(null);
@@ -28,7 +30,7 @@ export default function App() {
     setError(null);
     setResults(null);
     try {
-      const data = await fetchRoute(route, date, apiKey);
+      const data = await fetchRoute(start, transfer, end, date, apiKey);
       setResults(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error");
@@ -38,6 +40,11 @@ export default function App() {
   }
 
   const formatDuration = (minutes: number) => `${minutes}`;
+
+  const PRESETS = [
+    { label: "西九龙 → 坪山", start: "香港西九龙", transfer: "深圳北", end: "深圳坪山" },
+    { label: "坪山 → 西九龙", start: "深圳坪山", transfer: "深圳北", end: "香港西九龙" },
+  ];
 
   return (
     <main
@@ -80,36 +87,100 @@ export default function App() {
         }}
       >
         <div>
-          <label
-            style={{
-              display: "block",
-              marginBottom: "0.5rem",
-              fontWeight: 500,
-            }}
-          >
-            路线
+          <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}>
+            常用路线
           </label>
-          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <input
-                type="radio"
-                name="route"
-                value="香港西九龙 到 深圳坪山"
-                checked={route === "香港西九龙 到 深圳坪山"}
-                onChange={() => setRoute("香港西九龙 到 深圳坪山")}
-              />
-              香港西九龙 到 深圳坪山
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            {PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => { setStart(p.start); setTransfer(p.transfer); setEnd(p.end); }}
+                style={{
+                  padding: "0.35rem 0.75rem",
+                  fontSize: "0.9rem",
+                  border: "1px solid #ccc",
+                  borderRadius: 6,
+                  background: start === p.start && transfer === p.transfer && end === p.end ? "#0d6efd" : "#fff",
+                  color: start === p.start && transfer === p.transfer && end === p.end ? "#fff" : "#333",
+                  cursor: "pointer",
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="station-grid">
+          <div>
+            <label
+              htmlFor="start"
+              style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}
+            >
+              出发站
             </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <input
-                type="radio"
-                name="route"
-                value="深圳坪山 到 香港西九龙"
-                checked={route === "深圳坪山 到 香港西九龙"}
-                onChange={() => setRoute("深圳坪山 到 香港西九龙")}
-              />
-              深圳坪山 到 香港西九龙
+            <input
+              id="start"
+              type="text"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              required
+              style={{
+                width: "100%",
+                padding: "0.5rem 0.75rem",
+                fontSize: "1rem",
+                border: "1px solid #ccc",
+                borderRadius: 6,
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="transfer"
+              style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}
+            >
+              中转站
             </label>
+            <input
+              id="transfer"
+              type="text"
+              value={transfer}
+              onChange={(e) => setTransfer(e.target.value)}
+              required
+              style={{
+                width: "100%",
+                padding: "0.5rem 0.75rem",
+                fontSize: "1rem",
+                border: "1px solid #ccc",
+                borderRadius: 6,
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="end"
+              style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}
+            >
+              到达站
+            </label>
+            <input
+              id="end"
+              type="text"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              required
+              style={{
+                width: "100%",
+                padding: "0.5rem 0.75rem",
+                fontSize: "1rem",
+                border: "1px solid #ccc",
+                borderRadius: 6,
+                boxSizing: "border-box",
+              }}
+            />
           </div>
         </div>
 
@@ -130,9 +201,8 @@ export default function App() {
             value={date}
             onChange={(e) => setDate(e.target.value)}
             required
+            className="date-input"
             style={{
-              width: "100%",
-              maxWidth: 240,
               padding: "0.5rem 0.75rem",
               fontSize: "1rem",
               border: "1px solid #ccc",
@@ -153,8 +223,8 @@ export default function App() {
             border: "none",
             borderRadius: 6,
             cursor: loading ? "not-allowed" : "pointer",
-            alignSelf: "flex-start",
-          }}
+            }}
+          className="submit-btn"
         >
           {loading ? "查询中…" : "查询"}
         </button>

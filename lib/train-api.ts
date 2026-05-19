@@ -116,26 +116,16 @@ export function calculateRoute(
   return solutions;
 }
 
-export type RouteKey = "香港西九龙 到 深圳坪山" | "深圳坪山 到 香港西九龙";
-
-export function getStations(route: RouteKey): { start: string; end: string } {
-  if (route === "香港西九龙 到 深圳坪山") {
-    return { start: "香港西九龙", end: "深圳坪山" };
-  }
-  return { start: "深圳坪山", end: "香港西九龙" };
-}
-
-const MIDDLE = "深圳北";
-
 export async function fetchRoute(
-  route: RouteKey,
+  start: string,
+  transfer: string,
+  end: string,
   date: string,
   apiKey: string
 ): Promise<TicketSummary[]> {
-  const { start, end } = getStations(route);
   const [leg1, leg2] = await Promise.all([
-    getTickets(start, MIDDLE, date, apiKey),
-    getTickets(MIDDLE, end, date, apiKey),
+    getTickets(start, transfer, date, apiKey),
+    getTickets(transfer, end, date, apiKey),
   ]);
   return calculateRoute(leg1, leg2);
 }
