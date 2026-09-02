@@ -77,16 +77,49 @@ async function fetchTicketsRaw(
   url.searchParams.set("end", end);
   url.searchParams.set("enable_booking", "2");
 
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `APPCODE ${apiKey}` },
-  });
-  if (res.status === 401) {
-    throw new Error("API key 无效或已过期，请重新设置 (401 Unauthorized)");
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      headers: { Authorization: `APPCODE ${apiKey}` },
+    });
+  } catch {
+    throw new Error("网络请求失败，请检查网络连接后重试");
   }
-  const data = (await res.json()) as {
+
+  // Aliyun API Gateway reports auth/quota problems via the HTTP status and the
+  // X-Ca-Error-Message header, usually with an empty or non-JSON body. We must
+  // handle these BEFORE calling res.json(), otherwise parsing the non-JSON body
+  // throws a cryptic browser error ("The string did not match the expected
+  // pattern." on Safari / "Unexpected token…" on Chrome) instead of the real cause.
+  const caError = res.headers.get("X-Ca-Error-Message") || "";
+  const detail = caError ? `（${caError}）` : "";
+
+  if (res.status === 401 || res.status === 400) {
+    throw new Error(`API key（APPCODE）无效或已过期，请重新设置${detail}`);
+  }
+  if (res.status === 403) {
+    // Quota exhausted, subscription/APPCODE expired, or access forbidden.
+    if (/quota/i.test(caError)) {
+      throw new Error("API 调用次数已用尽（配额耗尽），请在阿里云 API 市场充值或更换 APPCODE");
+    }
+    throw new Error(`API 拒绝访问：配额可能已用尽或 APPCODE 已过期，请检查阿里云 API 市场的订阅${detail}`);
+  }
+  if (!res.ok) {
+    throw new Error(`请求失败（HTTP ${res.status}）${detail}，请稍后重试`);
+  }
+
+  const body = await res.text();
+  let data: {
     status?: string;
     result?: { list?: TrainTicket[] } | string;
   };
+  try {
+    data = JSON.parse(body);
+  } catch {
+    throw new Error(
+      `服务器返回了非预期的响应${detail || "，请稍后重试或重新设置 API key"}`
+    );
+  }
   if (data.status === "202") return null;
   const list = (data.result as { list?: TrainTicket[] })?.list ?? [];
   return list.filter(
