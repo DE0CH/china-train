@@ -45,21 +45,17 @@ function translate(word: string): string {
   return word;
 }
 
+// Yields the first leg-2 train departing at or after safeStart2 (arrival +
+// minimum transit time). Trains departing before the cutoff are not returned.
 function* findNext(
   tickets: TrainTicket[],
-  endTime: string,
   safeStart2: string
 ): Generator<TrainTicket> {
-  const timeMin = timeMinute(endTime);
   const safeMin = timeMinute(safeStart2);
   for (const ticket of tickets) {
-    const dep = timeMinute(ticket.departuretime);
-    if (dep >= safeMin) {
+    if (timeMinute(ticket.departuretime) >= safeMin) {
       yield ticket;
       return;
-    }
-    if (dep >= timeMin) {
-      yield ticket;
     }
   }
 }
@@ -147,7 +143,7 @@ export function calculateRoute(
   for (const ticket of leg1) {
     const endTime = ticket.arrivaltime;
     const safeStart2 = minuteToTime(timeMinute(endTime) + transitMinutes);
-    for (const ticket2 of findNext(leg2, endTime, safeStart2)) {
+    for (const ticket2 of findNext(leg2, safeStart2)) {
       solutions.push({
         出发时间: ticket.departuretime,
         到达时间: ticket2.arrivaltime,

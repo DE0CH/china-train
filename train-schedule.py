@@ -67,13 +67,13 @@ def time_diff(start, end):
     end = time_minute(end)
     return end - start
 
-def find_next(tickets, time, safe_start2):
+def find_next(tickets, safe_start2):
+    # First leg-2 train departing at or after the minimum-transit cutoff;
+    # trains departing before the cutoff are not returned.
     for ticket in tickets:
         if time_minute(ticket['departuretime']) >= time_minute(safe_start2):
             yield ticket
             break
-        elif time_minute(ticket['departuretime']) >= time_minute(time):
-            yield ticket
 
 def translate(word):
     dict = {}
@@ -167,7 +167,7 @@ def calculate_route(route, date):
     for ticket in leg1:
         end = ticket['arrivaltime']
         safe_start2 = minite_to_time(time_minute(end) + transit_time)
-        for ticket2 in find_next(leg2, end, safe_start2):
+        for ticket2 in find_next(leg2, safe_start2):
             solutions.append((ticket, ticket2))
     ans = summarize(solutions)
     html  = ans.to_html()
