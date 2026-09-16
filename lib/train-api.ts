@@ -60,138 +60,51 @@ function* findNext(
   }
 }
 
-// 聚合数据 "12306火车票时刻表余票查询服务" on the Aliyun API marketplace
-// (product cmapi00071761). Called straight from the browser: the gateway host
-// answers CORS preflights with `Access-Control-Allow-Origin: *`.
-const API_URL = "https://trainss.market.alicloudapi.com/fapigw/train/query";
-
-interface JuhePrice {
-  seat_name: string;
-  seat_type_code?: string;
-  price?: number | null;
-  num?: string | null;
+// The app's own Vercel function (api/query.ts) queries 12306 directly — China Railway's official
+// site, which has no daily cap and no API key — and returns the trains between two stations.
+export interface QueryTrain {
+  trainno: string; from: string; to: string;
+  departuretime: string; arrivaltime: string; duration: string;
+  origin: string; terminus: string; canBuy: boolean;
+  numsw: string; numyd: string; numed: string; numwz: string;
 }
 
-interface JuheTrain {
-  train_no: string;
-  departure_station: string;
-  arrival_station: string;
-  departure_time: string;
-  arrival_time: string;
-  duration?: string;
-  enable_booking?: string;
-  prices?: JuhePrice[];
-}
-
-interface JuheResponse {
-  reason?: string;
-  result?: JuheTrain[] | null;
-  error_code?: number | string;
-}
-
-// Seat classes the app displays, keyed by the seat_name juhe uses. 特等座 is
-// the business-class equivalent on some older sets, so it counts as 商务.
-const SEAT_ALIASES: Record<"sw" | "yd" | "ed" | "wz", string[]> = {
-  sw: ["商务座", "特等座"],
-  yd: ["一等座"],
-  ed: ["二等座"],
-  wz: ["无座"],
-};
-
-function seatNum(prices: JuhePrice[] | undefined, names: string[]): string {
-  for (const name of names) {
-    const p = prices?.find((x) => x.seat_name === name);
-    if (p && p.num != null && p.num !== "") return String(p.num);
-  }
-  return "--";
-}
-
-function toTicket(t: JuheTrain): TrainTicket {
-  return {
-    station: t.departure_station,
-    endstation: t.arrival_station,
-    departuretime: t.departure_time,
-    arrivaltime: t.arrival_time,
-    trainno: t.train_no,
-    numsw: seatNum(t.prices, SEAT_ALIASES.sw),
-    numyd: seatNum(t.prices, SEAT_ALIASES.yd),
-    numed: seatNum(t.prices, SEAT_ALIASES.ed),
-    numwz: seatNum(t.prices, SEAT_ALIASES.wz),
-  };
-}
-
-async function fetchTicketsRaw(
-  start: string,
-  end: string,
-  date: string,
-  apiKey: string
-): Promise<TrainTicket[]> {
-  const url = new URL(API_URL);
-  url.searchParams.set("search_type", "1"); // 1 = station names, 2 = station codes
-  url.searchParams.set("departure_station", start);
-  url.searchParams.set("arrival_station", end);
+async function fetchTicketsRaw(start: string, end: string, date: string): Promise<TrainTicket[]> {
+  const url = new URL("/api/query", window.location.origin);
+  url.searchParams.set("from", start);
+  url.searchParams.set("to", end);
   url.searchParams.set("date", date);
-  url.searchParams.set("enable_booking", "2"); // 2 = all trains, not only bookable
 
   let res: Response;
   try {
-    res = await fetch(url.toString(), {
-      headers: { Authorization: `APPCODE ${apiKey}` },
-    });
+    res = await fetch(url.toString());
   } catch {
     throw new Error("网络请求失败，请检查网络连接后重试");
   }
-
-  // Aliyun API Gateway reports auth/quota problems via the HTTP status and the
-  // X-Ca-Error-Message header (exposed to browsers), usually with an empty or
-  // non-JSON body. Handle these BEFORE parsing the body, otherwise parsing the
-  // non-JSON body throws a cryptic browser error instead of the real cause.
-  const caError = res.headers.get("X-Ca-Error-Message") || "";
-  const detail = caError ? `（${caError}）` : "";
-
-  if (res.status === 401 || res.status === 400) {
-    throw new Error(`API key（APPCODE）无效或已过期，请重新设置${detail}`);
-  }
-  if (res.status === 403) {
-    if (/quota/i.test(caError)) {
-      throw new Error("API 调用次数已用尽（配额耗尽），请在阿里云 API 市场充值或更换 APPCODE");
-    }
-    throw new Error(`API 拒绝访问：配额可能已用尽或 APPCODE 已过期，请检查阿里云 API 市场的订阅${detail}`);
-  }
-  if (!res.ok) {
-    throw new Error(`请求失败（HTTP ${res.status}）${detail}，请稍后重试`);
-  }
-
   const body = await res.text();
-  let data: JuheResponse;
+  let data: { trains?: QueryTrain[]; error?: string };
   try {
     data = JSON.parse(body);
   } catch {
-    throw new Error(
-      `服务器返回了非预期的响应${detail || "，请稍后重试或重新设置 API key"}`
-    );
+    throw new Error(`服务器返回了非预期的响应（HTTP ${res.status}），请稍后重试`);
   }
-
-  const code = Number(data.error_code ?? 0);
-  if (code !== 0) {
-    // juhe puts the human-readable cause in `reason` (unknown station, date
-    // outside the 15-day booking window, backend hiccup, ...).
-    throw new Error(`查询失败：${data.reason || `错误码 ${code}`}（${start} → ${end}）`);
-  }
-
-  const list = Array.isArray(data.result) ? data.result : [];
-  return list
-    .map(toTicket)
-    .filter((t) => t.station === start && t.endstation === end);
+  if (!res.ok || data.error) throw new Error(data.error || `请求失败（HTTP ${res.status}），请稍后重试`);
+  return (data.trains || []).map((t) => ({
+    station: t.from,
+    endstation: t.to,
+    departuretime: t.departuretime,
+    arrivaltime: t.arrivaltime,
+    trainno: t.trainno,
+    numsw: t.numsw,
+    numyd: t.numyd,
+    numed: t.numed,
+    numwz: t.numwz,
+    canBuy: t.canBuy,
+  }));
 }
 
-export async function getTickets(
-  start: string,
-  end: string,
-  date: string,
-  apiKey: string
-): Promise<TrainTicket[]> {
-  return fetchTicketsRaw(start, end, date, apiKey);
+export async function getTickets(start: string, end: string, date: string): Promise<TrainTicket[]> {
+  return fetchTicketsRaw(start, end, date);
 }
 
 export function calculateRoute(
@@ -232,12 +145,11 @@ export async function fetchRoute(
   transfer: string,
   end: string,
   date: string,
-  apiKey: string,
   transitMinutes: number = 8,
 ): Promise<TicketSummary[]> {
   const [leg1, leg2] = await Promise.all([
-    fetchTicketsRaw(start, transfer, date, apiKey),
-    fetchTicketsRaw(transfer, end, date, apiKey),
+    fetchTicketsRaw(start, transfer, date),
+    fetchTicketsRaw(transfer, end, date),
   ]);
   return calculateRoute(leg1, leg2, transitMinutes);
 }

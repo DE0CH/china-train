@@ -1,12 +1,7 @@
 import { useState, FormEvent } from "react";
 import { fetchRoute, type TicketSummary } from "@/lib/train-api";
-import { getApiKeyFromCookie, clearApiKeyCookie } from "@/lib/cookies";
-import SetupPage from "./SetupPage";
 
 export default function App() {
-  const [apiKey, setApiKey] = useState(() =>
-    typeof window !== "undefined" ? getApiKeyFromCookie() : ""
-  );
   const [start, setStart] = useState("香港西九龙");
   const [transfer, setTransfer] = useState("深圳北");
   const [end, setEnd] = useState("深圳坪山");
@@ -24,14 +19,6 @@ export default function App() {
   const [results, setResults] = useState<TicketSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  if (!apiKey) {
-    return (
-      <SetupPage
-        onSaved={() => setApiKey(getApiKeyFromCookie())}
-      />
-    );
-  }
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!date.trim()) return;
@@ -39,7 +26,7 @@ export default function App() {
     setError(null);
     setResults(null);
     try {
-      const data = await fetchRoute(start, transfer, end, date, apiKey, transitMinutes);
+      const data = await fetchRoute(start, transfer, end, date, transitMinutes);
       setResults(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error");
@@ -68,26 +55,9 @@ export default function App() {
         minHeight: "100vh",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "1.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
         <h1 style={{ margin: 0, fontSize: "1.75rem" }}>车票查询</h1>
-        <button
-          type="button"
-          onClick={() => {
-            clearApiKeyCookie();
-            setApiKey("");
-          }}
-          style={{
-            padding: "0.4rem 0.75rem",
-            fontSize: "0.9rem",
-            color: "#666",
-            background: "transparent",
-            border: "1px solid #ccc",
-            borderRadius: 6,
-            cursor: "pointer",
-          }}
-        >
-          退出
-        </button>
+        <span style={{ fontSize: "0.85rem", color: "#888" }}>数据来源：12306</span>
       </div>
 
       <form

@@ -18,6 +18,6 @@
       "@/*": ["./*"]
     }
   },
-  "include": ["src", "lib"],
+  "include": ["src", "lib", "api"],
   "exclude": ["node_modules"]
 }

@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/query.ts": {
+      "maxDuration": 30
+    }
+  },
+  "regions": [
+    "hkg1"
+  ]
+}
