@@ -13,9 +13,10 @@
 //     and a Referer, or it answers with an HTML redirect instead of JSON
 //   - station names map to 3-letter telecodes via the site's static station_name.js
 //   - rows come back as pipe-delimited strings with fields at fixed positions (see FIELD)
-// Egress goes through PROXY_URL (an IPRoyal proxy, http://user:pass@host:port) when set —
-// 12306 is happier with a Chinese mobile/residential exit than with a US datacenter IP — and
-// falls back to a direct request if the proxy fails. Static files (station list) are fetched
+// Egress goes through PROXY_URL (an IPRoyal proxy, http://user:pass@host:port; a sticky-session
+// token is appended per cookie session, see newProxyDispatcher) when set — 12306 is happier with
+// a Chinese mobile/residential exit than with a US datacenter IP — and falls back to a direct
+// request if the proxy fails. Static files (station list) are fetched
 // directly to save proxy traffic.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from "undici";
@@ -31,16 +32,26 @@ const FIELD = {
   canWebBuy: 11, startDate: 13, tz: 25, wz: 26, ze: 30, zy: 31, swz: 32,
 } as const;
 
-let dispatcher: Dispatcher | null | undefined;
-function proxyDispatcher(): Dispatcher | null {
-  if (dispatcher !== undefined) return dispatcher;
-  const url = process.env.PROXY_URL;
-  dispatcher = url ? new ProxyAgent({ uri: url, requestTls: { rejectUnauthorized: true } }) : null;
-  return dispatcher;
+// One ProxyAgent per cookie session. IPRoyal rotates the exit IP on every request by default,
+// and 12306 then answers the query with a 302 (cookies issued to one IP, query from another), so
+// the proxy password gets a sticky-session token (`_session-<8 hex>_lifetime-10m`) that keeps the
+// search-page visit and the queries on the same IP. Set PROXY_STICKY=0 for a proxy that does not
+// understand IPRoyal's password tokens.
+function newProxyDispatcher(): Dispatcher | null {
+  const raw = process.env.PROXY_URL;
+  if (!raw) return null;
+  let uri = raw;
+  if ((process.env.PROXY_STICKY ?? (/iproyal\.com/.test(raw) ? "1" : "0")) === "1") {
+    const u = new URL(raw);
+    const sid = Math.random().toString(16).slice(2, 10).padEnd(8, "0");
+    u.password = `${decodeURIComponent(u.password)}_session-${sid}_lifetime-10m`;
+    uri = u.toString();
+  }
+  return new ProxyAgent({ uri, requestTls: { rejectUnauthorized: true } });
 }
 
-async function get(url: string, opts: { headers?: Record<string, string>; proxy: boolean; timeoutMs?: number }) {
-  const d = opts.proxy ? proxyDispatcher() : null;
+async function get(url: string, opts: { headers?: Record<string, string>; proxy: boolean; timeoutMs?: number; dispatcher?: Dispatcher | null }) {
+  const d = opts.proxy ? (opts.dispatcher ?? newProxyDispatcher()) : null;
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 20000);
   try {
@@ -73,22 +84,24 @@ async function stations(): Promise<Map<string, string>> {
 }
 
 // ---- search-page visit: cookies + the current query path (cached briefly) ------------
-type Session = { cookie: string; path: string; via: "proxy" | "direct"; at: number };
+type Session = { cookie: string; path: string; via: "proxy" | "direct"; at: number; dispatcher: Dispatcher | null };
 let session: Session | null = null;
 async function openSession(proxy: boolean): Promise<Session> {
-  const r = await get(INIT_URL, { proxy });
+  const dispatcher = proxy ? newProxyDispatcher() : null;
+  const r = await get(INIT_URL, { proxy, dispatcher });
   const html = await r.text();
   const m = html.match(/var CLeftTicketUrl\s*=\s*'([^']+)'/);
   const path = m ? m[1] : "leftTicket/query";
   const cookie = (r.headers.getSetCookie?.() || []).map((c) => c.split(";")[0]).join("; ");
-  return { cookie, path, via: proxy ? "proxy" : "direct", at: Date.now() };
+  return { cookie, path, via: proxy ? "proxy" : "direct", at: Date.now(), dispatcher };
 }
 
 async function query(from: string, to: string, date: string, proxy: boolean) {
-  if (!session || session.via !== (proxy ? "proxy" : "direct") || Date.now() - session.at > 10 * 60 * 1000) session = await openSession(proxy);
+  // re-open before the sticky session's 10-minute lifetime ends
+  if (!session || session.via !== (proxy ? "proxy" : "direct") || Date.now() - session.at > 8 * 60 * 1000) session = await openSession(proxy);
   const qs = new URLSearchParams({ "leftTicketDTO.train_date": date, "leftTicketDTO.from_station": from, "leftTicketDTO.to_station": to, purpose_codes: "ADULT" });
   const url = `${BASE}/otn/${session.path}?${qs}`;
-  const r = await get(url, { proxy, headers: { Cookie: session.cookie, Referer: INIT_URL, Accept: "application/json, text/javascript, */*; q=0.01", "X-Requested-With": "XMLHttpRequest", "If-Modified-Since": "0", "Cache-Control": "no-cache" } });
+  const r = await get(url, { proxy, dispatcher: session.dispatcher, headers: { Cookie: session.cookie, Referer: INIT_URL, Accept: "application/json, text/javascript, */*; q=0.01", "X-Requested-With": "XMLHttpRequest", "If-Modified-Since": "0", "Cache-Control": "no-cache" } });
   const text = await r.text();
   let data: any;
   try { data = JSON.parse(text); } catch { session = null; throw new Error(`12306 answered ${r.status} with non-JSON (${text.slice(0, 60).replace(/\s+/g, " ")})`); }
