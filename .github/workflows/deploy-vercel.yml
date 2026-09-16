@@ -24,6 +24,34 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
 
+      # GitHub is the source of truth for the function's secrets: push them into the Vercel
+      # project env (production + preview) on every deploy. Non-secret guard settings ride along.
+      - name: Sync secrets into the Vercel project env
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          PROXY_URL: ${{ secrets.PROXY_URL }}
+          IPROYAL_API: ${{ secrets.IPROYAL_API }}
+          IPROYAL_SUBUSER_HASH: ${{ secrets.IPROYAL_SUBUSER_HASH }}
+          CF_ACCESS_TEAM_DOMAIN: de0ch.cloudflareaccess.com
+          CF_ACCESS_AUD: 19e57f999ccad9621931b47d911222e198dd15d4e70f30794c7ff52450910021
+          PUBLIC_HOST: train.deyaochen.com
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          keys = ["PROXY_URL", "IPROYAL_API", "IPROYAL_SUBUSER_HASH", "CF_ACCESS_TEAM_DOMAIN", "CF_ACCESS_AUD", "PUBLIC_HOST"]
+          body = [{"key": k, "value": os.environ[k], "type": "encrypted", "target": ["production", "preview"]} for k in keys if os.environ.get(k)]
+          req = urllib.request.Request(
+              f"https://api.vercel.com/v10/projects/{os.environ['VERCEL_PROJECT_ID']}/env?teamId={os.environ['VERCEL_ORG_ID']}&upsert=true",
+              data=json.dumps(body).encode(), method="POST",
+              headers={"Authorization": "Bearer " + os.environ["VERCEL_TOKEN"], "Content-Type": "application/json"})
+          with urllib.request.urlopen(req, timeout=60) as r:
+              d = json.load(r)
+          print("synced:", [e["key"] for e in d.get("created", [])], "failed:", d.get("failed"))
+          assert not d.get("failed")
+          PY
+
       - name: Pull Vercel environment
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
         env:
