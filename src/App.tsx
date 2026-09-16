@@ -13,6 +13,13 @@ export default function App() {
   const [date, setDate] = useState("");
   const [transitInput, setTransitInput] = useState("8");
   const transitMinutes = Math.max(0, parseInt(transitInput) || 0);
+  // The upstream API only accepts dates within the 12306 pre-sale window
+  // (today .. today+14), so constrain the picker to that range.
+  const isoDate = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const today = new Date();
+  const minDate = isoDate(today);
+  const maxDate = isoDate(new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000));
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<TicketSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -202,6 +209,8 @@ export default function App() {
               id="date"
               type="date"
               value={date}
+              min={minDate}
+              max={maxDate}
               onChange={(e) => setDate(e.target.value)}
               required
               style={{

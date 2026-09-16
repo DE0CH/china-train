@@ -27,7 +27,7 @@ export default function SetupPage({ onSaved }: Props) {
     >
       <h1 style={{ marginBottom: "0.5rem", fontSize: "1.75rem" }}>设置 API Key</h1>
       <p style={{ marginBottom: "1.5rem", color: "#666", fontSize: "0.95rem" }}>
-        本应用直接向阿里云火车票 API 请求数据，需使用您自己的 APPCODE。密钥仅保存在您的浏览器（Cookie）中，不会上传到任何服务器。
+        本应用直接向阿里云 API 市场的「聚合数据 12306 火车票时刻表余票查询」接口请求数据，需使用您自己的 APPCODE。密钥仅保存在您的浏览器（Cookie）中，不会上传到任何服务器。
       </p>
 
       {saved ? (
@@ -71,13 +71,13 @@ export default function SetupPage({ onSaved }: Props) {
             <p style={{ marginTop: "0.25rem", fontSize: "0.85rem", color: "#666" }}>
               在{" "}
               <a
-                href="https://market.aliyun.com/products/57126001/cmapi028426.html"
+                href="https://market.aliyun.com/detail/cmapi00071761"
                 target="_blank"
                 rel="noopener noreferrer"
               >
                 阿里云 API 市场
               </a>{" "}
-              购买/订阅后即可获取 APPCODE。
+              订阅（有 ¥2/100 次的试用套餐）后即可获取 APPCODE。
             </p>
           </div>
 

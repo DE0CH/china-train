@@ -1,6 +1,6 @@
 # china-train
 
-Train ticket search for **Hong Kong ↔ Ping Shan** (via Shenzhen North). A client-only wrapper around the [jisutrain API](https://jisutrain.market.alicloudapi.com): you provide your own API key and the app calls the upstream API from your browser, then computes and displays transfer options.
+Train ticket search for **Hong Kong ↔ Ping Shan** (via Shenzhen North). A client-only wrapper around the 聚合数据 "12306火车票时刻表余票查询服务" API on the [Alibaba Cloud API Marketplace](https://market.aliyun.com/detail/cmapi00071761): you provide your own APPCODE and the app calls the upstream API from your browser (the gateway allows CORS), then computes and displays transfer options.
 
 ## Setup
 
@@ -18,11 +18,17 @@ Train ticket search for **Hong Kong ↔ Ping Shan** (via Shenzhen North). A clie
 
    Open [http://localhost:5173](http://localhost:5173) (or the URL Vite prints).
 
-3. Get an API key (APPCODE) from [Alibaba Cloud API Marketplace](https://market.aliyun.com/products/57126001/cmapi028426.html) and enter it in the app. It is stored only in your browser (localStorage). If the upstream API blocks browser requests (CORS), you may need to use a CORS proxy or run the app in an environment that allows it.
+3. Subscribe to the API on the [Alibaba Cloud API Marketplace](https://market.aliyun.com/detail/cmapi00071761) (there is a ¥2 / 100-call trial tier) and enter the APPCODE in the app. It is stored only in your browser (cookie).
+
+Notes on the upstream API:
+
+- Endpoint `https://trainss.market.alicloudapi.com/fapigw/train/query`, `Authorization: APPCODE …`, query params `search_type=1` (station names), `departure_station`, `arrival_station`, `date`, `enable_booking=2` (all trains).
+- Dates must be within the 12306 pre-sale window (today .. today+14); the date picker is constrained accordingly.
+- Seat availability comes from `prices[].num` keyed by `seat_name` (商务座/特等座, 一等座, 二等座, 无座).
 
 ## Build & deploy
 
 - **Build:** `npm run build` → static files in `dist/`
 - **Preview:** `npm run preview` to serve the built app locally.
 
-Deploy the `dist/` folder to any static host (Vercel, Netlify, GitHub Pages, etc.). No server or environment variables are required; each user uses their own API key in the app.
+Pushing to `main` deploys to Vercel via the GitHub Action in `.github/workflows/deploy-vercel.yml`. No server or environment variables are required; each user uses their own API key in the app.

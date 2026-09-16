@@ -60,18 +60,78 @@ function* findNext(
   }
 }
 
-// Returns null if either station is unrecognized (API status 202), throws on real errors.
+// 聚合数据 "12306火车票时刻表余票查询服务" on the Aliyun API marketplace
+// (product cmapi00071761). Called straight from the browser: the gateway host
+// answers CORS preflights with `Access-Control-Allow-Origin: *`.
+const API_URL = "https://trainss.market.alicloudapi.com/fapigw/train/query";
+
+interface JuhePrice {
+  seat_name: string;
+  seat_type_code?: string;
+  price?: number | null;
+  num?: string | null;
+}
+
+interface JuheTrain {
+  train_no: string;
+  departure_station: string;
+  arrival_station: string;
+  departure_time: string;
+  arrival_time: string;
+  duration?: string;
+  enable_booking?: string;
+  prices?: JuhePrice[];
+}
+
+interface JuheResponse {
+  reason?: string;
+  result?: JuheTrain[] | null;
+  error_code?: number | string;
+}
+
+// Seat classes the app displays, keyed by the seat_name juhe uses. 特等座 is
+// the business-class equivalent on some older sets, so it counts as 商务.
+const SEAT_ALIASES: Record<"sw" | "yd" | "ed" | "wz", string[]> = {
+  sw: ["商务座", "特等座"],
+  yd: ["一等座"],
+  ed: ["二等座"],
+  wz: ["无座"],
+};
+
+function seatNum(prices: JuhePrice[] | undefined, names: string[]): string {
+  for (const name of names) {
+    const p = prices?.find((x) => x.seat_name === name);
+    if (p && p.num != null && p.num !== "") return String(p.num);
+  }
+  return "--";
+}
+
+function toTicket(t: JuheTrain): TrainTicket {
+  return {
+    station: t.departure_station,
+    endstation: t.arrival_station,
+    departuretime: t.departure_time,
+    arrivaltime: t.arrival_time,
+    trainno: t.train_no,
+    numsw: seatNum(t.prices, SEAT_ALIASES.sw),
+    numyd: seatNum(t.prices, SEAT_ALIASES.yd),
+    numed: seatNum(t.prices, SEAT_ALIASES.ed),
+    numwz: seatNum(t.prices, SEAT_ALIASES.wz),
+  };
+}
+
 async function fetchTicketsRaw(
   start: string,
   end: string,
   date: string,
   apiKey: string
-): Promise<TrainTicket[] | null> {
-  const url = new URL("https://jisutrain.market.alicloudapi.com/train/ticket");
+): Promise<TrainTicket[]> {
+  const url = new URL(API_URL);
+  url.searchParams.set("search_type", "1"); // 1 = station names, 2 = station codes
+  url.searchParams.set("departure_station", start);
+  url.searchParams.set("arrival_station", end);
   url.searchParams.set("date", date);
-  url.searchParams.set("start", start);
-  url.searchParams.set("end", end);
-  url.searchParams.set("enable_booking", "2");
+  url.searchParams.set("enable_booking", "2"); // 2 = all trains, not only bookable
 
   let res: Response;
   try {
@@ -83,10 +143,9 @@ async function fetchTicketsRaw(
   }
 
   // Aliyun API Gateway reports auth/quota problems via the HTTP status and the
-  // X-Ca-Error-Message header, usually with an empty or non-JSON body. We must
-  // handle these BEFORE calling res.json(), otherwise parsing the non-JSON body
-  // throws a cryptic browser error ("The string did not match the expected
-  // pattern." on Safari / "Unexpected token…" on Chrome) instead of the real cause.
+  // X-Ca-Error-Message header (exposed to browsers), usually with an empty or
+  // non-JSON body. Handle these BEFORE parsing the body, otherwise parsing the
+  // non-JSON body throws a cryptic browser error instead of the real cause.
   const caError = res.headers.get("X-Ca-Error-Message") || "";
   const detail = caError ? `（${caError}）` : "";
 
@@ -94,7 +153,6 @@ async function fetchTicketsRaw(
     throw new Error(`API key（APPCODE）无效或已过期，请重新设置${detail}`);
   }
   if (res.status === 403) {
-    // Quota exhausted, subscription/APPCODE expired, or access forbidden.
     if (/quota/i.test(caError)) {
       throw new Error("API 调用次数已用尽（配额耗尽），请在阿里云 API 市场充值或更换 APPCODE");
     }
@@ -105,10 +163,7 @@ async function fetchTicketsRaw(
   }
 
   const body = await res.text();
-  let data: {
-    status?: string;
-    result?: { list?: TrainTicket[] } | string;
-  };
+  let data: JuheResponse;
   try {
     data = JSON.parse(body);
   } catch {
@@ -116,11 +171,18 @@ async function fetchTicketsRaw(
       `服务器返回了非预期的响应${detail || "，请稍后重试或重新设置 API key"}`
     );
   }
-  if (data.status === "202") return null;
-  const list = (data.result as { list?: TrainTicket[] })?.list ?? [];
-  return list.filter(
-    (t) => t.station === start && t.endstation === end
-  ) as TrainTicket[];
+
+  const code = Number(data.error_code ?? 0);
+  if (code !== 0) {
+    // juhe puts the human-readable cause in `reason` (unknown station, date
+    // outside the 15-day booking window, backend hiccup, ...).
+    throw new Error(`查询失败：${data.reason || `错误码 ${code}`}（${start} → ${end}）`);
+  }
+
+  const list = Array.isArray(data.result) ? data.result : [];
+  return list
+    .map(toTicket)
+    .filter((t) => t.station === start && t.endstation === end);
 }
 
 export async function getTickets(
@@ -129,9 +191,7 @@ export async function getTickets(
   date: string,
   apiKey: string
 ): Promise<TrainTicket[]> {
-  const result = await fetchTicketsRaw(start, end, date, apiKey);
-  if (result === null) throw new Error(`站名无效：「${start}」或「${end}」不存在，请检查输入`);
-  return result;
+  return fetchTicketsRaw(start, end, date, apiKey);
 }
 
 export function calculateRoute(
@@ -179,25 +239,5 @@ export async function fetchRoute(
     fetchTicketsRaw(start, transfer, date, apiKey),
     fetchTicketsRaw(transfer, end, date, apiKey),
   ]);
-
-  if (leg1 !== null && leg2 !== null) return calculateRoute(leg1, leg2, transitMinutes);
-
-  if (leg1 === null && leg2 !== null) {
-    // transfer is valid (leg2 worked), so start is the bad one
-    throw new Error(`站名无效：「${start}」不存在，请检查输入`);
-  }
-
-  if (leg1 !== null && leg2 === null) {
-    // transfer is valid (leg1 worked), so end is the bad one
-    throw new Error(`站名无效：「${end}」不存在，请检查输入`);
-  }
-
-  // Both legs failed — try start→end directly to see if transfer is the only problem
-  const direct = await fetchTicketsRaw(start, end, date, apiKey);
-  if (direct !== null) {
-    throw new Error(`站名无效：「${transfer}」不存在，请检查输入`);
-  }
-
-  // All three lookups failed — more than one station is wrong, give up
-  throw new Error("多个站名无效，请检查出发站、中转站和到达站");
+  return calculateRoute(leg1, leg2, transitMinutes);
 }
