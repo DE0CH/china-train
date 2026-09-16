@@ -1,5 +1,23 @@
-import { useState, FormEvent } from "react";
-import { fetchRoute, type TicketSummary } from "@/lib/train-api";
+import { useState, useEffect, FormEvent } from "react";
+import { fetchRoute, fetchProxyStatus, lastVia, type TicketSummary, type ProxyStatus } from "@/lib/train-api";
+
+// Inline notice (never a popup): the proxy's remaining traffic, and whether the last query had
+// to bypass the proxy. `?proxyDemo=low|out` previews the warning states.
+function ProxyNotice({ status, bypassed }: { status: ProxyStatus | null; bypassed: boolean }) {
+  if (!status || !status.configured) return null;
+  const demo = new URLSearchParams(window.location.search).get("proxyDemo");
+  const st: ProxyStatus = demo === "low" ? { ...status, availableMb: 12.4, estimatedSearches: 84, low: true, exhausted: false }
+    : demo === "out" ? { ...status, availableMb: 0, estimatedSearches: 0, low: true, exhausted: true } : status;
+  const box = (bg: string, fg: string, border: string, children: React.ReactNode) => (
+    <div role="status" style={{ padding: "0.75rem 1rem", marginBottom: "1.25rem", background: bg, color: fg, border: `1px solid ${border}`, borderRadius: 8, fontSize: "0.92rem", lineHeight: 1.5 }}>{children}</div>
+  );
+  if (st.error) return box("#f8f9fa", "#666", "#e0e0e0", <>代理余量未知：{st.error}</>);
+  const mb = st.availableMb ?? 0, n = st.estimatedSearches ?? 0;
+  if (st.exhausted) return box("#f8d7da", "#721c24", "#f1b0b7", <><b>代理流量已用尽</b>（剩余 {mb} MB）。查询会尝试直连 12306，可能失败。请到 IPRoyal 为 residential 充值后再试。</>);
+  if (st.low) return box("#fff3cd", "#7a5b00", "#ffe69c", <><b>代理流量不足</b>：剩余 {mb} MB，约还能查 {n} 次。请尽快到 IPRoyal 为 residential 充值。</>);
+  if (bypassed) return box("#fff3cd", "#7a5b00", "#ffe69c", <>本次查询<b>未经代理</b>（代理失败或流量用尽，已直连 12306）。剩余代理流量 {mb} MB。</>);
+  return <p style={{ margin: "0 0 1.25rem", fontSize: "0.85rem", color: "#888" }}>代理流量剩余 {mb} MB（约 {n} 次查询）</p>;
+}
 
 export default function App() {
   const [start, setStart] = useState("香港西九龙");
@@ -18,6 +36,9 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<TicketSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [proxy, setProxy] = useState<ProxyStatus | null>(null);
+  const [bypassed, setBypassed] = useState(false);
+  useEffect(() => { fetchProxyStatus().then(setProxy); }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -28,10 +49,12 @@ export default function App() {
     try {
       const data = await fetchRoute(start, transfer, end, date, transitMinutes);
       setResults(data);
+      setBypassed(lastVia.includes("direct"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error");
     } finally {
       setLoading(false);
+      fetchProxyStatus().then(setProxy); // usage moved; refresh the remaining-traffic line
     }
   }
 
@@ -59,6 +82,8 @@ export default function App() {
         <h1 style={{ margin: 0, fontSize: "1.75rem" }}>车票查询</h1>
         <span style={{ fontSize: "0.85rem", color: "#888" }}>数据来源：12306</span>
       </div>
+
+      <ProxyNotice status={proxy} bypassed={bypassed} />
 
       <form
         onSubmit={handleSubmit}

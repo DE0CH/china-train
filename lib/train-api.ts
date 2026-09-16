@@ -62,12 +62,35 @@ function* findNext(
 
 // The app's own Vercel function (api/query.ts) queries 12306 directly — China Railway's official
 // site, which has no daily cap and no API key — and returns the trains between two stations.
+export interface ProxyStatus {
+  configured: boolean;
+  error?: string;
+  availableMb?: number;
+  usedMb?: number;
+  estimatedSearches?: number;
+  low?: boolean;
+  exhausted?: boolean;
+  lowThresholdMb?: number;
+}
+
+export async function fetchProxyStatus(): Promise<ProxyStatus | null> {
+  try {
+    const res = await fetch(new URL("/api/proxy-status", window.location.origin).toString());
+    return (await res.json()) as ProxyStatus;
+  } catch {
+    return null;
+  }
+}
+
 export interface QueryTrain {
   trainno: string; from: string; to: string;
   departuretime: string; arrivaltime: string; duration: string;
   origin: string; terminus: string; canBuy: boolean;
   numsw: string; numyd: string; numed: string; numwz: string;
 }
+
+// how the last leg fetch reached 12306 ("proxy" | "direct"); the page warns when the proxy was bypassed
+export let lastVia: string[] = [];
 
 async function fetchTicketsRaw(start: string, end: string, date: string): Promise<TrainTicket[]> {
   const url = new URL("/api/query", window.location.origin);
@@ -82,13 +105,14 @@ async function fetchTicketsRaw(start: string, end: string, date: string): Promis
     throw new Error("网络请求失败，请检查网络连接后重试");
   }
   const body = await res.text();
-  let data: { trains?: QueryTrain[]; error?: string };
+  let data: { trains?: QueryTrain[]; error?: string; via?: string };
   try {
     data = JSON.parse(body);
   } catch {
     throw new Error(`服务器返回了非预期的响应（HTTP ${res.status}），请稍后重试`);
   }
   if (!res.ok || data.error) throw new Error(data.error || `请求失败（HTTP ${res.status}），请稍后重试`);
+  if (data.via) lastVia.push(data.via);
   return (data.trains || []).map((t) => ({
     station: t.from,
     endstation: t.to,
@@ -147,6 +171,7 @@ export async function fetchRoute(
   date: string,
   transitMinutes: number = 8,
 ): Promise<TicketSummary[]> {
+  lastVia = [];
   const [leg1, leg2] = await Promise.all([
     fetchTicketsRaw(start, transfer, date),
     fetchTicketsRaw(transfer, end, date),
