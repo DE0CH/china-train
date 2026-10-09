@@ -146,7 +146,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const data = await query(fromCode, toCode, date, a.proxy);
       res.setHeader("Cache-Control", "no-store");
       return res.status(200).json({ trains: parseRows(data.result || [], data.map || {}), via: a.proxy ? "proxy" : "direct", path: session?.path });
-    } catch (e: any) { errors.push(`${a.proxy ? "proxy" : "direct"}: ${e.message}`); }
+    } catch (e: any) {
+      // undici reports network errors as "fetch failed"; the real reason (ECONNRESET, timeout…) is in .cause
+      const c = e.cause ? ` (${e.cause.code || ""} ${e.cause.message || ""})`.replace(/\(\s+/, "(") : "";
+      errors.push(`${a.proxy ? "proxy" : "direct"}: ${e.message}${c}`);
+    }
   }
   console.error(`12306 query failed ${fromCode}->${toCode} ${date}: ${errors.join(" | ")}`);
   return res.status(502).json({ error: `12306 查询失败（${errors.join(" | ")}）` });
