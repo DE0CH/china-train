@@ -1,7 +1,7 @@
 // Vercel serverless function: query 12306 (China Railway's official ticketing site) for the
 // trains between two stations on a date, and return them in the shape the app renders.
 //
-//   GET /api/query?from=深圳坪山&to=深圳北&date=2026-09-17
+//   GET /api/query?from=深圳坪山&to=深圳北&date=2026-09-17[&via=direct|proxy]
 //   -> { trains: [{ trainno, from, to, departuretime, arrivaltime, duration, origin, terminus,
 //                   canBuy, numsw, numyd, numed, numwz }], path, via }
 //
@@ -136,7 +136,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!fromCode) return res.status(404).json({ error: `站名无效：「${from}」不存在` });
   if (!toCode) return res.status(404).json({ error: `站名无效：「${to}」不存在` });
 
-  const attempts: Array<{ proxy: boolean }> = [{ proxy: false }, { proxy: false }, ...(process.env.PROXY_URL ? [{ proxy: true }] : [])];
+  // `via` pins one route (for testing the fallback); default is direct, direct, then the proxy
+  const via = String(req.query.via || "");
+  const attempts: Array<{ proxy: boolean }> = via === "proxy" ? [{ proxy: true }] : via === "direct" ? [{ proxy: false }]
+    : [{ proxy: false }, { proxy: false }, ...(process.env.PROXY_URL ? [{ proxy: true }] : [])];
   const errors: string[] = [];
   for (const a of attempts) {
     try {
