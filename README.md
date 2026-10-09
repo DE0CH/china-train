@@ -11,8 +11,10 @@ computes the transfer options. No API key, no daily quota.
   discovers the current path suffix from the search page, takes the cookies that page sets, maps
   station names to telecodes via 12306's `station_name.js`, and parses the pipe-delimited rows
   (train no @3, from/to codes @6/7, times @8/9, 商务座 @32, 一等座 @31, 二等座 @30, 无座 @26).
-  Egress is direct (12306 answers the hkg1 datacenter IP); only if two direct attempts fail does it
-  fall back to `PROXY_URL` (an IPRoyal proxy, `http://user:pass@host:port`, Vercel env var). Region pinned to `hkg1`.
+  Egress is direct first, falling back to `PROXY_URL` (an IPRoyal proxy, `http://user:pass@host:port`,
+  Vercel env var). 12306 drops TCP connections from some of Vercel's hkg1 egress IPs, so a direct
+  connect times out after 4 s and that instance then uses the proxy for 10 minutes.
+  `&via=direct|proxy` pins one route for testing. Region pinned to `hkg1`.
 - `lib/train-api.ts` — calls the function for both legs and pairs them with the minimum transfer
   time; `src/App.tsx` renders the cards.
 
@@ -32,7 +34,7 @@ the deploy workflow upserts them into the Vercel project env before each build, 
 non-secret guard settings (`CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `PUBLIC_HOST`). Rotate a secret
 by updating it in GitHub and re-running the workflow. `/api/proxy-status` reports the residential
 sub-user's remaining traffic and the page shows it inline (yellow under 30 MB, red when exhausted,
-and a notice when a query needed the proxy because direct failed). No `alert()`-style popups anywhere.
+and notes when a query went through the proxy because direct was unreachable). No `alert()`-style popups anywhere.
 
 ## Develop
 

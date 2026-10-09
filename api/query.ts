@@ -13,12 +13,14 @@
 //     and a Referer, or it answers with an HTML redirect instead of JSON
 //   - station names map to 3-letter telecodes via the site's static station_name.js
 //   - rows come back as pipe-delimited strings with fields at fixed positions (see FIELD)
-// Egress is direct first: 12306 answers Vercel's hkg1 datacenter IP fine, and that costs nothing.
-// Only when both direct attempts fail does it go through PROXY_URL (an IPRoyal proxy,
+// Egress is direct first (free), falling back to PROXY_URL (an IPRoyal proxy,
 // http://user:pass@host:port; a sticky-session token is appended per cookie session, see
-// newProxyDispatcher), so the paid residential traffic is spent only when 12306 blocks us.
+// newProxyDispatcher). 12306 silently drops TCP connections from SOME of Vercel's hkg1 (AWS)
+// egress IPs — UND_ERR_CONNECT_TIMEOUT to its mainland addresses, while other instances connect
+// fine — so direct uses a short connect timeout, and an instance whose direct connect fails skips
+// direct for DIRECT_DOWN_MS (see markDirect) and goes straight to the proxy.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from "undici";
+import { fetch as undiciFetch, Agent, ProxyAgent, type Dispatcher } from "undici";
 
 const BASE = "https://kyfw.12306.cn";
 const INIT_URL = `${BASE}/otn/leftTicket/init`;
@@ -49,6 +51,14 @@ function newProxyDispatcher(): Dispatcher | null {
   return new ProxyAgent({ uri, requestTls: { rejectUnauthorized: true } });
 }
 
+const directAgent = new Agent({ connect: { timeout: 4000 } });
+const DIRECT_DOWN_MS = 10 * 60 * 1000;
+let directDownUntil = 0;
+const directUp = () => Date.now() >= directDownUntil;
+// a connect-level failure means this instance's egress IP is blocked; an HTTP-level one does not
+const NETWORK_CODES = new Set(["UND_ERR_CONNECT_TIMEOUT", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH"]);
+function markDirect(e: any) { if (NETWORK_CODES.has(e?.cause?.code)) directDownUntil = Date.now() + DIRECT_DOWN_MS; }
+
 async function get(url: string, opts: { headers?: Record<string, string>; proxy: boolean; timeoutMs?: number; dispatcher?: Dispatcher | null }) {
   const d = opts.proxy ? (opts.dispatcher ?? newProxyDispatcher()) : null;
   const ctrl = new AbortController();
@@ -58,7 +68,7 @@ async function get(url: string, opts: { headers?: Record<string, string>; proxy:
       headers: { "User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9", ...(opts.headers || {}) },
       redirect: "manual",
       signal: ctrl.signal,
-      ...(d ? { dispatcher: d } : {}),
+      dispatcher: d ?? directAgent,
     });
   } finally { clearTimeout(t); }
 }
@@ -69,8 +79,10 @@ const codeToName = new Map<string, string>();
 async function stations(): Promise<Map<string, string>> {
   if (!stationsPromise) {
     stationsPromise = (async () => {
-      const r = await get(`${BASE}/otn/resources/js/framework/station_name.js`, { proxy: false, timeoutMs: 25000 })
-        .catch(() => get(`${BASE}/otn/resources/js/framework/station_name.js`, { proxy: true, timeoutMs: 25000 }));
+      const url = `${BASE}/otn/resources/js/framework/station_name.js`;
+      const r = directUp()
+        ? await get(url, { proxy: false, timeoutMs: 15000 }).catch((e) => { markDirect(e); return get(url, { proxy: true, timeoutMs: 15000 }); })
+        : await get(url, { proxy: true, timeoutMs: 15000 });
       const js = await r.text();
       const map = new Map<string, string>();
       // entries look like @bjb|北京北|VAP|beijingbei|bjb|0|0357|北京|||
@@ -139,15 +151,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // `via` pins one route (for testing the fallback); default is direct, direct, then the proxy
   const via = String(req.query.via || "");
   const attempts: Array<{ proxy: boolean }> = via === "proxy" ? [{ proxy: true }] : via === "direct" ? [{ proxy: false }]
-    : [{ proxy: false }, { proxy: false }, ...(process.env.PROXY_URL ? [{ proxy: true }] : [])];
+    : [...(directUp() ? [{ proxy: false }, { proxy: false }] : []), ...(process.env.PROXY_URL ? [{ proxy: true }] : [])];
+  if (!attempts.length) attempts.push({ proxy: false });
   const errors: string[] = [];
   for (const a of attempts) {
+    if (!a.proxy && via !== "direct" && process.env.PROXY_URL && !directUp()) continue;  // the first direct attempt found this IP blocked
     try {
       const data = await query(fromCode, toCode, date, a.proxy);
       res.setHeader("Cache-Control", "no-store");
       return res.status(200).json({ trains: parseRows(data.result || [], data.map || {}), via: a.proxy ? "proxy" : "direct", path: session?.path });
     } catch (e: any) {
       // undici reports network errors as "fetch failed"; the real reason (ECONNRESET, timeout…) is in .cause
+      if (!a.proxy) markDirect(e);
       const c = e.cause ? ` (${e.cause.code || ""} ${e.cause.message || ""})`.replace(/\(\s+/, "(") : "";
       errors.push(`${a.proxy ? "proxy" : "direct"}: ${e.message}${c}`);
     }

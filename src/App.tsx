@@ -15,8 +15,7 @@ function ProxyNotice({ status, usedProxy }: { status: ProxyStatus | null; usedPr
   const mb = st.availableMb ?? 0, n = st.estimatedSearches ?? 0;
   if (st.exhausted) return box("#f8d7da", "#721c24", "#f1b0b7", <><b>代理流量已用尽</b>（剩余 {mb} MB）。直连 12306 失败时将没有备用线路。请到 IPRoyal 为 residential 充值后再试。</>);
   if (st.low) return box("#fff3cd", "#7a5b00", "#ffe69c", <><b>代理流量不足</b>：剩余 {mb} MB，约还能查 {n} 次。请尽快到 IPRoyal 为 residential 充值。</>);
-  if (usedProxy) return box("#fff3cd", "#7a5b00", "#ffe69c", <>本次查询直连 12306 失败，<b>已改走备用代理</b>。剩余代理流量 {mb} MB。</>);
-  return <p style={{ margin: "0 0 1.25rem", fontSize: "0.85rem", color: "#888" }}>直连 12306；备用代理流量剩余 {mb} MB（约 {n} 次查询）</p>;
+  return <p style={{ margin: "0 0 1.25rem", fontSize: "0.85rem", color: "#888" }}>{usedProxy ? "本次经备用代理查询（直连 12306 不通）" : "直连 12306"}；备用代理流量剩余 {mb} MB（约 {n} 次查询）</p>;
 }
 
 export default function App() {
