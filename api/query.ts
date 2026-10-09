@@ -145,5 +145,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ trains: parseRows(data.result || [], data.map || {}), via: a.proxy ? "proxy" : "direct", path: session?.path });
     } catch (e: any) { errors.push(`${a.proxy ? "proxy" : "direct"}: ${e.message}`); }
   }
+  console.error(`12306 query failed ${fromCode}->${toCode} ${date}: ${errors.join(" | ")}`);
   return res.status(502).json({ error: `12306 查询失败（${errors.join(" | ")}）` });
 }
