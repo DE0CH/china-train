@@ -21,7 +21,7 @@
 // direct for DIRECT_DOWN_MS (see markDirect) and goes straight to the proxy.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { fetch as undiciFetch, Agent, ProxyAgent, type Dispatcher } from "undici";
-import { STATION_SNAPSHOT } from "../lib/station-snapshot";
+import { STATION_SNAPSHOT } from "../lib/station-snapshot.js";
 
 const BASE = "https://kyfw.12306.cn";
 const INIT_URL = `${BASE}/otn/leftTicket/init`;
