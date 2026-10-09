@@ -14,7 +14,9 @@ computes the transfer options. No API key, no daily quota.
   Egress is direct first, falling back to `PROXY_URL` (an IPRoyal proxy, `http://user:pass@host:port`,
   Vercel env var). 12306 drops TCP connections from some of Vercel's hkg1 egress IPs, so a direct
   connect times out after 4 s and that instance then uses the proxy for 10 minutes.
-  `&via=direct|proxy` pins one route for testing. Region pinned to `hkg1`.
+  `&via=direct|proxy` pins one route for testing.
+  Station names map to telecodes via 12306's live `station_name.js` when direct works, else via the
+  bundled `lib/station-snapshot.ts` (refresh with `node scripts/update-stations.mjs`). Region pinned to `hkg1`.
 - `lib/train-api.ts` — calls the function for both legs and pairs them with the minimum transfer
   time; `src/App.tsx` renders the cards.
 

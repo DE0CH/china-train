@@ -21,6 +21,7 @@
 // direct for DIRECT_DOWN_MS (see markDirect) and goes straight to the proxy.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { fetch as undiciFetch, Agent, ProxyAgent, type Dispatcher } from "undici";
+import { STATION_SNAPSHOT } from "../lib/station-snapshot";
 
 const BASE = "https://kyfw.12306.cn";
 const INIT_URL = `${BASE}/otn/leftTicket/init`;
@@ -79,11 +80,13 @@ const codeToName = new Map<string, string>();
 async function stations(): Promise<Map<string, string>> {
   if (!stationsPromise) {
     stationsPromise = (async () => {
-      const url = `${BASE}/otn/resources/js/framework/station_name.js`;
-      const r = directUp()
-        ? await get(url, { proxy: false, timeoutMs: 15000 }).catch((e) => { markDirect(e); return get(url, { proxy: true, timeoutMs: 15000 }); })
-        : await get(url, { proxy: true, timeoutMs: 15000 });
-      const js = await r.text();
+      // live list when 12306 is reachable directly; otherwise the bundled snapshot (no proxy traffic)
+      let js = "";
+      if (directUp()) {
+        try { js = await (await get(`${BASE}/otn/resources/js/framework/station_name.js`, { proxy: false, timeoutMs: 10000 })).text(); }
+        catch (e: any) { markDirect(e); console.error(`station list: direct failed (${e.cause?.code || e.message}), using the snapshot`); }
+      }
+      if (!js.includes("station_names")) js = STATION_SNAPSHOT.split("@").map((p) => `@x|${p}|`).join("");
       const map = new Map<string, string>();
       // entries look like @bjb|北京北|VAP|beijingbei|bjb|0|0357|北京|||
       for (const m of js.matchAll(/@[a-z0-9]*\|([^|]+)\|([A-Z]{3})\|/g)) { const name = m[1].replace(/\s+/g, ""); map.set(name, m[2]); codeToName.set(m[2], name); }

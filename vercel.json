@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/query.ts": {
-      "maxDuration": 30
+      "maxDuration": 60
     }
   },
   "regions": [
