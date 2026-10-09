@@ -1,9 +1,9 @@
 import { useState, useEffect, FormEvent } from "react";
 import { fetchRoute, fetchProxyStatus, lastVia, type TicketSummary, type ProxyStatus } from "@/lib/train-api";
 
-// Inline notice (never a popup): the proxy's remaining traffic, and whether the last query had
-// to bypass the proxy. `?proxyDemo=low|out` previews the warning states.
-function ProxyNotice({ status, bypassed }: { status: ProxyStatus | null; bypassed: boolean }) {
+// Inline notice (never a popup): the fallback proxy's remaining traffic, and whether the last
+// query needed it (direct to 12306 failed). `?proxyDemo=low|out` previews the warning states.
+function ProxyNotice({ status, usedProxy }: { status: ProxyStatus | null; usedProxy: boolean }) {
   if (!status || !status.configured) return null;
   const demo = new URLSearchParams(window.location.search).get("proxyDemo");
   const st: ProxyStatus = demo === "low" ? { ...status, availableMb: 12.4, estimatedSearches: 84, low: true, exhausted: false }
@@ -13,10 +13,10 @@ function ProxyNotice({ status, bypassed }: { status: ProxyStatus | null; bypasse
   );
   if (st.error) return box("#f8f9fa", "#666", "#e0e0e0", <>代理余量未知：{st.error}</>);
   const mb = st.availableMb ?? 0, n = st.estimatedSearches ?? 0;
-  if (st.exhausted) return box("#f8d7da", "#721c24", "#f1b0b7", <><b>代理流量已用尽</b>（剩余 {mb} MB）。查询会尝试直连 12306，可能失败。请到 IPRoyal 为 residential 充值后再试。</>);
+  if (st.exhausted) return box("#f8d7da", "#721c24", "#f1b0b7", <><b>代理流量已用尽</b>（剩余 {mb} MB）。直连 12306 失败时将没有备用线路。请到 IPRoyal 为 residential 充值后再试。</>);
   if (st.low) return box("#fff3cd", "#7a5b00", "#ffe69c", <><b>代理流量不足</b>：剩余 {mb} MB，约还能查 {n} 次。请尽快到 IPRoyal 为 residential 充值。</>);
-  if (bypassed) return box("#fff3cd", "#7a5b00", "#ffe69c", <>本次查询<b>未经代理</b>（代理失败或流量用尽，已直连 12306）。剩余代理流量 {mb} MB。</>);
-  return <p style={{ margin: "0 0 1.25rem", fontSize: "0.85rem", color: "#888" }}>代理流量剩余 {mb} MB（约 {n} 次查询）</p>;
+  if (usedProxy) return box("#fff3cd", "#7a5b00", "#ffe69c", <>本次查询直连 12306 失败，<b>已改走备用代理</b>。剩余代理流量 {mb} MB。</>);
+  return <p style={{ margin: "0 0 1.25rem", fontSize: "0.85rem", color: "#888" }}>直连 12306；备用代理流量剩余 {mb} MB（约 {n} 次查询）</p>;
 }
 
 export default function App() {
@@ -37,7 +37,7 @@ export default function App() {
   const [results, setResults] = useState<TicketSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [proxy, setProxy] = useState<ProxyStatus | null>(null);
-  const [bypassed, setBypassed] = useState(false);
+  const [usedProxy, setUsedProxy] = useState(false);
   useEffect(() => { fetchProxyStatus().then(setProxy); }, []);
 
   async function handleSubmit(e: FormEvent) {
@@ -49,7 +49,7 @@ export default function App() {
     try {
       const data = await fetchRoute(start, transfer, end, date, transitMinutes);
       setResults(data);
-      setBypassed(lastVia.includes("direct"));
+      setUsedProxy(lastVia.includes("proxy"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error");
     } finally {
@@ -83,7 +83,7 @@ export default function App() {
         <span style={{ fontSize: "0.85rem", color: "#888" }}>数据来源：12306</span>
       </div>
 
-      <ProxyNotice status={proxy} bypassed={bypassed} />
+      <ProxyNotice status={proxy} usedProxy={usedProxy} />
 
       <form
         onSubmit={handleSubmit}

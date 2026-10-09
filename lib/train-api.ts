@@ -89,7 +89,7 @@ export interface QueryTrain {
   numsw: string; numyd: string; numed: string; numwz: string;
 }
 
-// how the last leg fetch reached 12306 ("proxy" | "direct"); the page warns when the proxy was bypassed
+// how the last leg fetch reached 12306 ("proxy" | "direct"); the page notes when direct failed and the proxy was needed
 export let lastVia: string[] = [];
 
 async function fetchTicketsRaw(start: string, end: string, date: string): Promise<TrainTicket[]> {

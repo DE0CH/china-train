@@ -13,11 +13,10 @@
 //     and a Referer, or it answers with an HTML redirect instead of JSON
 //   - station names map to 3-letter telecodes via the site's static station_name.js
 //   - rows come back as pipe-delimited strings with fields at fixed positions (see FIELD)
-// Egress goes through PROXY_URL (an IPRoyal proxy, http://user:pass@host:port; a sticky-session
-// token is appended per cookie session, see newProxyDispatcher) when set — 12306 is happier with
-// a Chinese mobile/residential exit than with a US datacenter IP — and falls back to a direct
-// request if the proxy fails. Static files (station list) are fetched
-// directly to save proxy traffic.
+// Egress is direct first: 12306 answers Vercel's hkg1 datacenter IP fine, and that costs nothing.
+// Only when both direct attempts fail does it go through PROXY_URL (an IPRoyal proxy,
+// http://user:pass@host:port; a sticky-session token is appended per cookie session, see
+// newProxyDispatcher), so the paid residential traffic is spent only when 12306 blocks us.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from "undici";
 
@@ -137,7 +136,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!fromCode) return res.status(404).json({ error: `站名无效：「${from}」不存在` });
   if (!toCode) return res.status(404).json({ error: `站名无效：「${to}」不存在` });
 
-  const attempts: Array<{ proxy: boolean }> = process.env.PROXY_URL ? [{ proxy: true }, { proxy: true }, { proxy: false }] : [{ proxy: false }, { proxy: false }];
+  const attempts: Array<{ proxy: boolean }> = [{ proxy: false }, { proxy: false }, ...(process.env.PROXY_URL ? [{ proxy: true }] : [])];
   const errors: string[] = [];
   for (const a of attempts) {
     try {
