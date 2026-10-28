@@ -1,0 +1,21 @@
+// The whole app: dist/ (vite build) as Workers Static Assets served from the edge, and the Worker
+// (worker/index.ts) only for /api/*. Reachable only as train.deyaochen.com (Cloudflare Access);
+// no workers.dev or preview hostnames.
+{
+  "name": "china-train",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "train.deyaochen.com/*", "zone_name": "deyaochen.com" }],
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "CF_ACCESS_TEAM_DOMAIN": "de0ch.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "19e57f999ccad9621931b47d911222e198dd15d4e70f30794c7ff52450910021"
+  },
+  "observability": { "enabled": true }
+}

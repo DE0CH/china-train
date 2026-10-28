@@ -1,53 +1,59 @@
 # china-train
 
-Train ticket search for **Hong Kong ↔ Ping Shan** (via Shenzhen North): a Vite/React page plus one
-Vercel serverless function that queries **12306** (China Railway's official site) directly and
-computes the transfer options. No API key, no daily quota.
+Train route planner for mainland China and Hong Kong at **https://train.deyaochen.com**: pick any two
+stations (autocomplete on name, pinyin or initials) and a date; it lists every direct train and every
+one-transfer route worth taking, with live seats from **12306** (China Railway's official site). No
+API key, no daily quota.
 
 ## How it works
 
-- `api/query.ts` — `GET /api/query?from=深圳坪山&to=深圳北&date=YYYY-MM-DD` → `{trains:[…]}`.
-  It calls the JSON endpoint 12306's own search page uses (`kyfw.12306.cn/otn/leftTicket/query<X>`):
-  discovers the current path suffix from the search page, takes the cookies that page sets, maps
-  station names to telecodes via 12306's `station_name.js`, and parses the pipe-delimited rows
-  (train no @3, from/to codes @6/7, times @8/9, 商务座 @32, 一等座 @31, 二等座 @30, 无座 @26).
-  Egress is direct first, falling back to `PROXY_URL` (an IPRoyal proxy, `http://user:pass@host:port`,
-  Vercel env var). 12306 drops TCP connections from some of Vercel's hkg1 egress IPs, so a direct
-  connect times out after 4 s and that instance then uses the proxy for 10 minutes.
-  `&via=direct|proxy` pins one route for testing.
-  Station names map to telecodes via 12306's live `station_name.js` when direct works, else via the
-  bundled `lib/station-snapshot.ts` (refresh with `node scripts/update-stations.mjs`). Region pinned to `hkg1`.
-- `lib/train-api.ts` — calls the function for both legs and pairs them with the minimum transfer
-  time; `src/App.tsx` renders the cards.
+- **Timetable** — `crawler/` (Rust) builds `public/timetable.json`: every station (12306's
+  `station_name.js`) and every train with its stops and times. The train list comes from
+  `search.12306.cn/search/v1/train/search` (≤200 results per keyword, so train-number prefixes are
+  split digit by digit; it blocks an IP with HTTP 403 after a burst, hence the slow pace and
+  backoff); each train's stops from `kyfw.12306.cn/otn/queryTrainInfo/query`. Two dates (a weekday
+  and a weekend day) are crawled so weekend-only trains are in. 12306's own transfer planner
+  (`lcquery`) is not used: it answers 没有查询到中转方案 for every route touching 香港西九龙.
+- **Planner** — `lib/planner.ts`, in the browser: direct trains plus one transfer, at the same
+  station or at another station of the same city (e.g. 福田 → 深圳北), keeping only routes no other
+  route beats on both departure and arrival. Minimum change times and the longest wait are settings
+  on the page (defaults: 15 min in one station, 60 min across town, wait ≤ 4 h).
+- **Live seats** — `worker/index.ts`, a Cloudflare Worker, answers
+  `GET /api/query?from=深圳坪山&to=深圳北&date=YYYY-MM-DD` → `{trains:[…]}` with the JSON endpoint
+  12306's own search page uses (`kyfw.12306.cn/otn/leftTicket/query<X>`): it discovers the current
+  path suffix and cookies from the search page, maps names to telecodes, parses the pipe-delimited
+  rows (train_no @2, code @3, from/to telecodes @6/7, times @8/9, 商务座 @32, 一等座 @31, 二等座 @30,
+  无座 @26) and keeps only rows whose boarding and alighting stations are the queried ones (12306
+  also returns the rest of the city: 深圳北→香港西九龙 lists 福田 departures too). The page asks it for
+  each leg; a train missing from the answer does not run that day and its routes are hidden.
+  12306 is reached directly from Cloudflare's network (no proxy).
+- **Hosting** — one Worker with Workers Static Assets (`wrangler.jsonc`): the built page and
+  `timetable.json` are served from Cloudflare's edge without running code; only `/api/*` runs the
+  Worker. Route `train.deyaochen.com/*`; no workers.dev or preview hostnames.
 
 ## Access guard
 
-The site is used at **https://train.deyaochen.com** — a Cloudflare-proxied hostname with a
-Cloudflare Access application (policy: the owner's email; the Claude agent's service token). Every
-request is checked by `middleware.ts` (Vercel Edge Middleware): it verifies the `Cf-Access-Jwt-Assertion`
-JWT against the team's keys and the app's AUD, so the bare `china-train.vercel.app` hostname (which
-bypasses Cloudflare) can't be used to query 12306 and spend proxy traffic — pages are redirected to
-the guarded host, `/api/*` gets 401.
+`train.deyaochen.com` has a Cloudflare Access application (policy: the owner's email; the Claude
+agent's service token). `/api/*` also verifies the `Cf-Access-Jwt-Assertion` JWT (or the
+`CF_Authorization` cookie) against the team's keys and the app's AUD (`CF_ACCESS_TEAM_DOMAIN`,
+`CF_ACCESS_AUD` in `wrangler.jsonc`).
 
-## Secrets
+## Deploy
 
-GitHub Actions secrets are the source of truth (`PROXY_URL`, `IPROYAL_API`, `IPROYAL_SUBUSER_HASH`);
-the deploy workflow upserts them into the Vercel project env before each build, together with the
-non-secret guard settings (`CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `PUBLIC_HOST`). Rotate a secret
-by updating it in GitHub and re-running the workflow. `/api/proxy-status` reports the residential
-sub-user's remaining traffic and the page shows it inline (yellow under 30 MB, red when exhausted,
-and notes when a query went through the proxy because direct was unreachable). No `alert()`-style popups anywhere.
+`.github/workflows/deploy.yml`: every push to `main` builds and runs `wrangler deploy`; every Monday
+03:17 Beijing time it crawls the timetable again (a push reuses the cached copy while it is under
+7 days old; *Run workflow* with *recrawl* forces one). Secret: `CLOUDFLARE_API_TOKEN` (token
+`china-train-ci`: Workers Scripts Write + Account Settings Read, Workers Routes Write + Zone Read
+on deyaochen.com).
 
 ## Develop
 
 ```bash
 npm install
-npm run dev        # UI only; the function needs `vercel dev` or the deployed site
-npm run lint       # tsc
+cargo run --release --manifest-path crawler/Cargo.toml -- public/timetable.json   # ~20 min
+npm run dev        # the page; /api needs `npx wrangler dev` (run `npm run build` first)
+npm run lint       # tsc for the page and the Worker
 npm run build      # dist/
 ```
 
-Pushing to `main` deploys to Vercel via `.github/workflows/deploy-vercel.yml`.
-
-Notes: 12306 returns same-city stations too (a 深圳北→香港西九龙 query also lists 福田 departures);
-`api/query.ts` keeps only rows whose boarding/alighting telecodes (@6/@7) are the queried ones. Cross-border G trains show `无座 --`.
+Cross-border G trains show `无座 --`.

@@ -24,3 +24,8 @@ out/
 node_modules/
 .vercel
 .vite
+
+# built by crawler/ in CI
+public/timetable.json
+crawler/target/
+.wrangler/

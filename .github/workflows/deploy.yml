@@ -1,0 +1,96 @@
+name: Deploy to Cloudflare
+
+# Every push to main deploys; every Monday the national timetable is crawled again (crawler/).
+# A push reuses the cached timetable while it is under 7 days old. If a crawl fails and an older
+# copy is cached, that copy is deployed (and the run says so); without any copy the deploy fails
+# and the live version stays.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 19 * * 0"   # Monday 03:17 Beijing time
+  workflow_dispatch:
+    inputs:
+      recrawl:
+        description: "Crawl the timetable even if the cached copy is fresh"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Restore the last timetable
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: public/timetable.json
+          key: timetable-${{ github.run_id }}
+          restore-keys: timetable-
+
+      - name: Is a crawl due?
+        id: due
+        run: |
+          f=public/timetable.json
+          if [ ! -s "$f" ] || [ "${{ github.event_name }}" = schedule ] || [ "${{ inputs.recrawl }}" = true ] \
+             || [ "$(( $(date +%s) - $(date -d "$(jq -r .generated "$f")" +%s) ))" -gt $((7*86400)) ]; then
+            echo crawl=true >> "$GITHUB_OUTPUT"
+          else
+            echo "cached timetable from $(jq -r .generated "$f") is fresh"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.due.outputs.crawl == 'true'
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.due.outputs.crawl == 'true'
+        with:
+          workspaces: crawler
+
+      - name: Crawl the national timetable from 12306
+        id: crawl
+        if: steps.due.outputs.crawl == 'true'
+        continue-on-error: true
+        run: |
+          cargo build --release --manifest-path crawler/Cargo.toml
+          mkdir -p public
+          TZ=Asia/Shanghai crawler/target/release/timetable /tmp/timetable.json
+          mv /tmp/timetable.json public/timetable.json
+          echo "trains: $(jq '.trains | length' public/timetable.json), stations: $(jq '.stations | length' public/timetable.json)"
+
+      - name: Keep the new timetable
+        if: steps.crawl.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: public/timetable.json
+          key: timetable-${{ github.run_id }}
+
+      - name: Check a timetable is there
+        run: |
+          test -s public/timetable.json || { echo "::error::no timetable (crawl failed and nothing cached)"; exit 1; }
+          if [ "${{ steps.crawl.outcome }}" = failure ]; then
+            echo "::warning::crawl failed; deploying the cached timetable from $(jq -r .generated public/timetable.json)"
+          fi
+
+      - run: npm run lint
+      - run: npm run build
+
+      - name: Deploy the Worker and its static assets
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ee3b4deef856baf11e1a67b242438325

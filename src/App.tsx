@@ -1,363 +1,250 @@
-import { useState, useEffect, FormEvent } from "react";
-import { fetchRoute, fetchProxyStatus, lastVia, type TicketSummary, type ProxyStatus } from "@/lib/train-api";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { loadTimetable, plan, searchStations, clock, span, DEFAULT_OPTIONS, type Timetable, type Route, type Leg, type PlanOptions } from "@/lib/planner";
+import { seatsFor, addDays, type Seats } from "@/lib/train-api";
 
-// Inline notice (never a popup): the fallback proxy's remaining traffic, and whether the last
-// query needed it (direct to 12306 failed). `?proxyDemo=low|out` previews the warning states.
-function ProxyNotice({ status, usedProxy }: { status: ProxyStatus | null; usedProxy: boolean }) {
-  if (!status || !status.configured) return null;
-  const demo = new URLSearchParams(window.location.search).get("proxyDemo");
-  const st: ProxyStatus = demo === "low" ? { ...status, availableMb: 12.4, estimatedSearches: 84, low: true, exhausted: false }
-    : demo === "out" ? { ...status, availableMb: 0, estimatedSearches: 0, low: true, exhausted: true } : status;
-  const box = (bg: string, fg: string, border: string, children: React.ReactNode) => (
-    <div role="status" style={{ padding: "0.75rem 1rem", marginBottom: "1.25rem", background: bg, color: fg, border: `1px solid ${border}`, borderRadius: 8, fontSize: "0.92rem", lineHeight: 1.5 }}>{children}</div>
+const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const WEEK = "日一二三四五六";
+const PRESETS: Array<[string, string]> = [["香港西九龙", "深圳坪山"], ["深圳坪山", "香港西九龙"]];
+const short = (name: string) => name.replace(/^(香港|深圳)(?=..)/, "");
+
+function readPrefs<T>(key: string, fallback: T): T {
+  try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : fallback; } catch { return fallback; }
+}
+function writePrefs(key: string, v: unknown) { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* private mode */ } }
+
+// ---- station picker ---------------------------------------------------------------------------
+function StationPicker({ tt, label, value, onChange, recent }: {
+  tt: Timetable | null; label: string; value: number | null; onChange: (i: number) => void; recent: number[];
+}) {
+  const [text, setText] = useState("");
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const box = useRef<HTMLDivElement>(null);
+  const shown = value !== null && tt ? tt.stations[value].name : "";
+  useEffect(() => { if (!open) setText(shown); }, [shown, open]);
+  useEffect(() => {
+    const close = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+  const hits = useMemo(() => {
+    if (!tt) return [];
+    const q = text.trim();
+    return q && q !== shown ? searchStations(tt, q) : recent.filter((i) => i !== value).slice(0, 8);
+  }, [tt, text, shown, recent, value]);
+  useEffect(() => setHi(0), [text]);
+  const pick = (i: number) => { onChange(i); setOpen(false); setText(tt!.stations[i].name); (document.activeElement as HTMLElement)?.blur(); };
+  const key = (e: KeyboardEvent) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setHi((h) => Math.min(h + 1, hits.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
+    else if (e.key === "Enter" && open && hits[hi] !== undefined) { e.preventDefault(); pick(hits[hi]); }
+    else if (e.key === "Escape") setOpen(false);
+  };
+  return (
+    <div className="picker" ref={box}>
+      <label>{label}</label>
+      <input
+        value={text} placeholder={tt ? "站名 / 拼音 / 首字母" : "加载车站…"} disabled={!tt}
+        onFocus={(e) => { setOpen(true); e.target.select(); }} onChange={(e) => { setText(e.target.value); setOpen(true); }} onKeyDown={key}
+        autoComplete="off" spellCheck={false}
+      />
+      {open && tt && hits.length > 0 && (
+        <ul className="suggest">
+          {!text.trim() || text === shown ? <li className="suggest-head">最近使用</li> : null}
+          {hits.map((i, k) => (
+            <li key={i} className={k === hi ? "on" : ""} onMouseDown={(e) => { e.preventDefault(); pick(i); }} onMouseEnter={() => setHi(k)}>
+              <span className="s-name">{tt.stations[i].name}</span>
+              <span className="s-meta">{tt.stations[i].city !== tt.stations[i].name ? tt.stations[i].city + " · " : ""}{tt.stations[i].pinyin}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
-  if (st.error) return box("#f8f9fa", "#666", "#e0e0e0", <>代理余量未知：{st.error}</>);
-  const mb = st.availableMb ?? 0, n = st.estimatedSearches ?? 0;
-  if (st.exhausted) return box("#f8d7da", "#721c24", "#f1b0b7", <><b>代理流量已用尽</b>（剩余 {mb} MB）。直连 12306 失败时将没有备用线路。请到 IPRoyal 为 residential 充值后再试。</>);
-  if (st.low) return box("#fff3cd", "#7a5b00", "#ffe69c", <><b>代理流量不足</b>：剩余 {mb} MB，约还能查 {n} 次。请尽快到 IPRoyal 为 residential 充值。</>);
-  return <p style={{ margin: "0 0 1.25rem", fontSize: "0.85rem", color: "#888" }}>{usedProxy ? "本次经备用代理查询（直连 12306 不通）" : "直连 12306"}；备用代理流量剩余 {mb} MB（约 {n} 次查询）</p>;
 }
 
+// ---- seats ------------------------------------------------------------------------------------
+type LegState = { seats?: Seats; missing?: boolean; error?: string };
+const legKey = (tt: Timetable, l: Leg, date: string) => `${tt.stations[l.from].code}|${tt.stations[l.to].code}|${addDays(date, Math.floor(l.depart / 1440))}`;
+
+function SeatChips({ s }: { s?: LegState }) {
+  if (!s) return <span className="seats loading">查询余票…</span>;
+  if (s.error) return <span className="seats err">余票查询失败</span>;
+  if (s.missing) return <span className="seats err">当日不开行</span>;
+  const cls = (v: string) => (v === "有" || /^\d+$/.test(v) ? "ok" : v === "无" ? "none" : "na");
+  const items: Array<[string, string]> = [["商务", s.seats!.sw], ["一等", s.seats!.yd], ["二等", s.seats!.ed], ["无座", s.seats!.wz]];
+  return (
+    <span className="seats">
+      {items.filter(([, v]) => v !== "--").map(([k, v]) => <span key={k} className={`chip ${cls(v)}`}>{k} {v === "有" ? "有" : v === "无" ? "无" : v}</span>)}
+      {!s.seats!.canBuy && <span className="chip na">未开售</span>}
+    </span>
+  );
+}
+
+type LegQuery = { byTrain: Map<string, Seats>; error?: undefined } | { error: string; byTrain?: undefined };
+
+function RouteCard({ tt, r, date, legs }: { tt: Timetable; r: Route; date: string; legs: Map<string, LegQuery> }) {
+  const st = (i: number) => tt.stations[i].name;
+  return (
+    <article className="route">
+      <header>
+        <div className="times">
+          <span className="t">{clock(r.depart)}</span>
+          <span className="arrow"><span>{span(r.arrive - r.depart)}</span></span>
+          <span className="t">{clock(r.arrive)}</span>
+        </div>
+        <span className={`badge ${r.transfers ? "xfer" : "direct"}`}>{r.transfers ? "中转 1 次" : "直达"}</span>
+      </header>
+      {r.legs.map((l, k) => {
+        const q = legs.get(legKey(tt, l, date));
+        const legState: LegState | undefined = !q ? undefined : q.error ? { error: q.error }
+          : q.byTrain!.has(l.trainNo) ? { seats: q.byTrain!.get(l.trainNo) } : { missing: true };
+        return (
+          <div key={k}>
+            {k > 0 && (
+              <div className="change">
+                {r.legs[k - 1].to === l.from ? `在 ${st(l.from)} 换乘` : `${st(r.legs[k - 1].to)} → ${st(l.from)} 同城换乘`} · 等 {span(l.depart - r.legs[k - 1].arrive)}
+              </div>
+            )}
+            <div className="leg">
+              <span className="train">{(legState?.seats?.code) || l.train}</span>
+              <span className="leg-route">{st(l.from)} {clock(l.depart)} → {st(l.to)} {clock(l.arrive)}</span>
+              <SeatChips s={legState} />
+            </div>
+          </div>
+        );
+      })}
+    </article>
+  );
+}
+
+// ---- page -------------------------------------------------------------------------------------
 export default function App() {
-  const [start, setStart] = useState("香港西九龙");
-  const [transfer, setTransfer] = useState("深圳北");
-  const [end, setEnd] = useState("深圳坪山");
-  const [date, setDate] = useState("");
-  const [transitInput, setTransitInput] = useState("8");
-  const transitMinutes = Math.max(0, parseInt(transitInput) || 0);
-  // The upstream API only accepts dates within the 12306 pre-sale window
-  // (today .. today+14), so constrain the picker to that range.
-  const isoDate = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const [tt, setTt] = useState<Timetable | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [from, setFrom] = useState<number | null>(null);
+  const [to, setTo] = useState<number | null>(null);
   const today = new Date();
-  const minDate = isoDate(today);
-  const maxDate = isoDate(new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000));
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<TicketSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [proxy, setProxy] = useState<ProxyStatus | null>(null);
-  const [usedProxy, setUsedProxy] = useState(false);
-  useEffect(() => { fetchProxyStatus().then(setProxy); }, []);
+  const [date, setDate] = useState(isoDate(new Date(today.getTime() + 86400000)));
+  const [opts, setOpts] = useState<PlanOptions>(() => ({ ...DEFAULT_OPTIONS, ...readPrefs<Partial<PlanOptions>>("opts", {}) }));
+  const [showOpts, setShowOpts] = useState(false);
+  const [filter, setFilter] = useState<"all" | "direct" | "xfer">("all");
+  const [routes, setRoutes] = useState<Route[] | null>(null);
+  const [legs, setLegs] = useState<Map<string, LegQuery>>(new Map());
+  const [recent, setRecent] = useState<string[]>(() => readPrefs<string[]>("recent", []));
+  const run = useRef(0);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!date.trim()) return;
-    setLoading(true);
-    setError(null);
-    setResults(null);
-    try {
-      const data = await fetchRoute(start, transfer, end, date, transitMinutes);
-      setResults(data);
-      setUsedProxy(lastVia.includes("proxy"));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
-    } finally {
-      setLoading(false);
-      fetchProxyStatus().then(setProxy); // usage moved; refresh the remaining-traffic line
-    }
+  useEffect(() => {
+    loadTimetable().then((t) => {
+      setTt(t);
+      const q = new URLSearchParams(location.search);
+      const last = readPrefs<[string, string] | null>("last", null);
+      const [f, d] = q.get("from") && q.get("to") ? [q.get("from")!, q.get("to")!] : last ?? PRESETS[0];
+      const idx = (s: string) => t.byCode.get(s) ?? t.stations.findIndex((x) => x.name === s);
+      if (idx(f) >= 0) setFrom(idx(f));
+      if (idx(d) >= 0) setTo(idx(d));
+    }).catch((e) => setLoadErr(e.message));
+  }, []);
+  useEffect(() => writePrefs("opts", opts), [opts]);
+
+  const recentIdx = useMemo(() => {
+    if (!tt) return [];
+    const names = [...recent, ...PRESETS.flat()];
+    return [...new Set(names.map((n) => tt.stations.findIndex((s) => s.name === n)).filter((i) => i >= 0))];
+  }, [tt, recent]);
+  const remember = (i: number) => { if (!tt) return; const r = [tt.stations[i].name, ...recent.filter((n) => n !== tt.stations[i].name)].slice(0, 8); setRecent(r); writePrefs("recent", r); };
+
+  function search() {
+    if (!tt || from === null || to === null || from === to) return;
+    const id = ++run.current;
+    writePrefs("last", [tt.stations[from].name, tt.stations[to].name]);
+    const rs = plan(tt, from, to, opts);
+    setRoutes(rs);
+    setLegs(new Map());
+    // live seats for every leg shown, a few queries at a time
+    const keys = [...new Set(rs.flatMap((r) => r.legs.map((l) => legKey(tt, l, date))))];
+    let next = 0;
+    const worker = async () => {
+      while (next < keys.length && run.current === id) {
+        const k = keys[next++];
+        const [f, t, d] = k.split("|");
+        let v: LegQuery;
+        try { v = { byTrain: await seatsFor(f, t, d) }; } catch (e: any) { v = { error: e.message }; }
+        if (run.current === id) setLegs((m) => new Map(m).set(k, v));
+      }
+    };
+    for (let i = 0; i < 4; i++) worker();
   }
+  useEffect(() => { if (tt && from !== null && to !== null) search(); /* eslint-disable-next-line */ }, [tt, from, to, date, opts]);
 
-  const formatDuration = (minutes: number) => {
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return h > 0 ? `${h}小时${m}分` : `${m}分`;
-  };
+  // a route is hidden once 12306 says one of its trains does not run that day
+  const runs = (r: Route) => r.legs.every((l) => { const s = legs.get(legKey(tt!, l, date)); return !s || !!s.error || s.byTrain!.has(l.trainNo); });
+  const visible = routes?.filter(runs).filter((r) => filter === "all" || (filter === "direct" ? r.transfers === 0 : r.transfers > 0)) ?? [];
+  const hidden = routes ? routes.filter((r) => !runs(r)).length : 0;
+  const pending = routes ? routes.some((r) => r.legs.some((l) => !legs.has(legKey(tt!, l, date)))) : false;
 
-  const PRESETS = [
-    { label: "西九龙 → 坪山", start: "香港西九龙", transfer: "深圳北", end: "深圳坪山" },
-    { label: "坪山 → 西九龙", start: "深圳坪山", transfer: "深圳北", end: "香港西九龙" },
-  ];
+  const days = Array.from({ length: 15 }, (_, i) => new Date(today.getTime() + i * 86400000));
 
   return (
-    <main
-      style={{
-        maxWidth: "720px",
-        margin: "0 auto",
-        padding: "2rem 1rem",
-        minHeight: "100vh",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "1.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
-        <h1 style={{ margin: 0, fontSize: "1.75rem" }}>车票查询</h1>
-        <span style={{ fontSize: "0.85rem", color: "#888" }}>数据来源：12306</span>
-      </div>
+    <main>
+      <header className="top">
+        <h1>火车路线规划</h1>
+        <span className="sub">全国时刻表 · 余票实时来自 12306{tt ? ` · 时刻表 ${tt.generated.slice(0, 10)}` : ""}</span>
+      </header>
 
-      <ProxyNotice status={proxy} usedProxy={usedProxy} />
+      {loadErr && <p className="error">{loadErr}</p>}
 
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "1.25rem",
-          marginBottom: "2rem",
-        }}
-      >
-        <div>
-          <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}>
-            常用路线
-          </label>
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            {PRESETS.map((p) => (
-              <button
-                key={p.label}
-                type="button"
-                onClick={() => { setStart(p.start); setTransfer(p.transfer); setEnd(p.end); }}
-                style={{
-                  padding: "0.35rem 0.75rem",
-                  fontSize: "0.9rem",
-                  border: "1px solid #ccc",
-                  borderRadius: 6,
-                  background: start === p.start && transfer === p.transfer && end === p.end ? "#0d6efd" : "#fff",
-                  color: start === p.start && transfer === p.transfer && end === p.end ? "#fff" : "#333",
-                  cursor: "pointer",
-                }}
-              >
-                {p.label}
+      <section className="panel">
+        <div className="ends">
+          <StationPicker tt={tt} label="出发" value={from} onChange={(i) => { setFrom(i); remember(i); }} recent={recentIdx} />
+          <button className="swap" type="button" aria-label="交换出发和到达" onClick={() => { setFrom(to); setTo(from); }}>⇄</button>
+          <StationPicker tt={tt} label="到达" value={to} onChange={(i) => { setTo(i); remember(i); }} recent={recentIdx} />
+        </div>
+
+        <div className="days" role="tablist">
+          {days.map((d) => {
+            const iso = isoDate(d);
+            const rel = ["今天", "明天", "后天"][Math.round((d.getTime() - today.getTime()) / 86400000)];
+            return (
+              <button key={iso} type="button" className={iso === date ? "day on" : "day"} onClick={() => setDate(iso)}>
+                <span>{rel ?? `周${WEEK[d.getDay()]}`}</span>
+                <b>{d.getMonth() + 1}/{d.getDate()}</b>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="presets">
+          {PRESETS.map(([a, b]) => (
+            <button key={a + b} type="button" className="preset" onClick={() => { if (!tt) return; setFrom(tt.stations.findIndex((s) => s.name === a)); setTo(tt.stations.findIndex((s) => s.name === b)); }}>
+              {short(a)} → {short(b)}
+            </button>
+          ))}
+          <button type="button" className="preset ghost" onClick={() => setShowOpts((v) => !v)}>换乘设置 {showOpts ? "▴" : "▾"}</button>
+        </div>
+
+        {showOpts && (
+          <div className="opts">
+            <label>同站换乘至少 <input type="number" min={0} max={120} value={opts.sameStationChange} onChange={(e) => setOpts({ ...opts, sameStationChange: +e.target.value || 0 })} /> 分钟</label>
+            <label>同城换站至少 <input type="number" min={0} max={240} value={opts.crossTownChange} onChange={(e) => setOpts({ ...opts, crossTownChange: +e.target.value || 0 })} /> 分钟</label>
+            <label>最长等待 <input type="number" min={10} max={720} value={opts.maxWait} onChange={(e) => setOpts({ ...opts, maxWait: +e.target.value || 0 })} /> 分钟</label>
+            <label className="check"><input type="checkbox" checked={opts.sameCityEnds} onChange={(e) => setOpts({ ...opts, sameCityEnds: e.target.checked })} /> 出发/到达包括同城其他车站</label>
+          </div>
+        )}
+      </section>
+
+      {routes && tt && (
+        <section>
+          <div className="filters">
+            {(["all", "direct", "xfer"] as const).map((f) => (
+              <button key={f} type="button" className={filter === f ? "on" : ""} onClick={() => setFilter(f)}>
+                {{ all: "全部", direct: "直达", xfer: "中转" }[f]}
               </button>
             ))}
+            <span className="count">{visible.length} 个方案{pending ? " · 正在核对余票…" : ""}{hidden ? ` · 已隐藏 ${hidden} 个当日不开行` : ""}</span>
           </div>
-        </div>
-
-        <div className="station-grid">
-          <div>
-            <label
-              htmlFor="start"
-              style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}
-            >
-              出发站
-            </label>
-            <input
-              id="start"
-              type="text"
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
-              required
-              style={{
-                width: "100%",
-                padding: "0.5rem 0.75rem",
-                fontSize: "1rem",
-                border: "1px solid #ccc",
-                borderRadius: 6,
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="transfer"
-              style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}
-            >
-              中转站
-            </label>
-            <input
-              id="transfer"
-              type="text"
-              value={transfer}
-              onChange={(e) => setTransfer(e.target.value)}
-              required
-              style={{
-                width: "100%",
-                padding: "0.5rem 0.75rem",
-                fontSize: "1rem",
-                border: "1px solid #ccc",
-                borderRadius: 6,
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="end"
-              style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}
-            >
-              到达站
-            </label>
-            <input
-              id="end"
-              type="text"
-              value={end}
-              onChange={(e) => setEnd(e.target.value)}
-              required
-              style={{
-                width: "100%",
-                padding: "0.5rem 0.75rem",
-                fontSize: "1rem",
-                border: "1px solid #ccc",
-                borderRadius: 6,
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-        </div>
-
-        <div className="date-transit-row">
-          <div>
-            <label
-              htmlFor="date"
-              style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}
-            >
-              出发日期
-            </label>
-            <input
-              id="date"
-              type="date"
-              value={date}
-              min={minDate}
-              max={maxDate}
-              onChange={(e) => setDate(e.target.value)}
-              required
-              style={{
-                padding: "0.5rem 0.75rem",
-                fontSize: "1rem",
-                border: "1px solid #ccc",
-                borderRadius: 6,
-              }}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="transitMinutes"
-              style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}
-            >
-              最短换乘时间（分钟）
-            </label>
-            <input
-              id="transitMinutes"
-              type="text"
-              inputMode="numeric"
-              value={transitInput}
-              onChange={(e) => setTransitInput(e.target.value)}
-              style={{
-                width: 80,
-                padding: "0.5rem 0.75rem",
-                fontSize: "1rem",
-                border: "1px solid #ccc",
-                borderRadius: 6,
-              }}
-            />
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            padding: "0.6rem 1.25rem",
-            fontSize: "1rem",
-            fontWeight: 500,
-            color: "#fff",
-            background: loading ? "#999" : "#0d6efd",
-            border: "none",
-            borderRadius: 6,
-            cursor: loading ? "not-allowed" : "pointer",
-            }}
-          className="submit-btn"
-        >
-          {loading ? "查询中…" : "查询"}
-        </button>
-      </form>
-
-      {error && (
-        <div
-          style={{
-            padding: "1rem",
-            marginBottom: "1rem",
-            background: "#f8d7da",
-            color: "#721c24",
-            borderRadius: 6,
-          }}
-        >
-          {error}
-        </div>
-      )}
-
-      {results && (
-        <section>
-          <h2 style={{ marginBottom: "1rem", fontSize: "1.25rem" }}>查询结果</h2>
-          {results.length === 0 ? (
-            <p style={{ color: "#666" }}>暂无符合条件的车次。</p>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {results.map((row, i) => (
-                <div
-                  key={i}
-                  style={{
-                    background: "#fff",
-                    border: "1px solid #e8e8e8",
-                    borderRadius: 12,
-                    padding: "1rem",
-                    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-                  }}
-                >
-                  {/* Times row */}
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-                    <div style={{ minWidth: 56 }}>
-                      <div style={{ fontSize: "1.6rem", fontWeight: 700, lineHeight: 1 }}>{row["出发时间"]}</div>
-                      <div style={{ fontSize: "0.8rem", color: "#888", marginTop: 2 }}>{start}</div>
-                    </div>
-
-                    <div style={{ flex: 1, textAlign: "center" }}>
-                      <div style={{ fontSize: "0.8rem", color: "#f60", marginBottom: 4 }}>
-                        全程{formatDuration(row["时长"])}
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <div style={{ flex: 1, height: 1, background: "#ddd" }} />
-                        <span style={{
-                          fontSize: "0.75rem",
-                          padding: "2px 8px",
-                          border: "1px solid #ccc",
-                          borderRadius: 20,
-                          whiteSpace: "nowrap",
-                          background: "#fafafa",
-                        }}>
-                          {transfer}
-                        </span>
-                        <div style={{ flex: 1, height: 1, background: "#ddd" }} />
-                      </div>
-                      <div style={{ fontSize: "0.75rem", color: "#888", marginTop: 4 }}>
-                        同站换乘{formatDuration(row["中转时间"])}
-                      </div>
-                    </div>
-
-                    <div style={{ minWidth: 56, textAlign: "right" }}>
-                      <div style={{ fontSize: "1.6rem", fontWeight: 700, lineHeight: 1 }}>{row["到达时间"]}</div>
-                      <div style={{ fontSize: "0.8rem", color: "#888", marginTop: 2 }}>{end}</div>
-                    </div>
-                  </div>
-
-                  {/* Divider */}
-                  <div style={{ borderTop: "1px solid #f0f0f0", margin: "0.75rem 0" }} />
-
-                  {/* Ticket availability */}
-                  {[
-                    { leg: "1程", sw: row["1 商务"], yd: row["1 一等"], ed: row["1 二等"], wz: row["1 站票"], trainno: row["1 车次"] },
-                    { leg: "2程", sw: row["2 商务"], yd: row["2 一等"], ed: row["2 二等"], wz: row["2 站票"], trainno: row["2 车次"] },
-                  ].map(({ leg, sw, yd, ed, wz, trainno }) => (
-                    <div key={leg} style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", fontSize: "0.85rem", marginBottom: "0.35rem" }}>
-                      <span style={{ color: "#888", minWidth: 28 }}>{leg}</span>
-                      {trainno && (
-                        <span style={{
-                          fontSize: "0.75rem",
-                          background: "#f5f5f5",
-                          border: "1px solid #ddd",
-                          borderRadius: 4,
-                          padding: "1px 5px",
-                          fontFamily: "monospace",
-                        }}>{trainno}</span>
-                      )}
-                      <span style={{ marginLeft: "auto", display: "flex", gap: "1rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        <span>二等 <b>{ed}</b></span>
-                        <span>一等 <b>{yd}</b></span>
-                        <span>商务 <b>{sw}</b></span>
-                        <span>无座 <b>{wz}</b></span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
+          {visible.length === 0 && !pending && <p className="empty">没有找到方案。可以在「换乘设置」里放宽等待时间，或包括同城其他车站。</p>}
+          {visible.map((r, i) => <RouteCard key={i} tt={tt} r={r} date={date} legs={legs} />)}
         </section>
       )}
     </main>
