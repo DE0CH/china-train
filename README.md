@@ -31,13 +31,6 @@ API key, no daily quota.
   `timetable.json` are served from Cloudflare's edge without running code; only `/api/*` runs the
   Worker. Route `train.deyaochen.com/*`; no workers.dev or preview hostnames.
 
-## Access guard
-
-`train.deyaochen.com` has a Cloudflare Access application (policy: the owner's email; the Claude
-agent's service token). `/api/*` also verifies the `Cf-Access-Jwt-Assertion` JWT (or the
-`CF_Authorization` cookie) against the team's keys and the app's AUD (`CF_ACCESS_TEAM_DOMAIN`,
-`CF_ACCESS_AUD` in `wrangler.jsonc`).
-
 ## Deploy
 
 `.github/workflows/deploy.yml`: every push to `main` builds and runs `wrangler deploy`; every Monday

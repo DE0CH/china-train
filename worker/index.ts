@@ -14,14 +14,7 @@
 //     and a Referer, or it answers with an HTML redirect instead of JSON
 //   - station names map to 3-letter telecodes via the site's static station_name.js
 //   - rows come back as pipe-delimited strings with fields at fixed positions (see FIELD)
-//
-// The hostname train.deyaochen.com sits behind a Cloudflare Access application; /api/* also
-// verifies the Access JWT itself (vars CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD), so the API answers
-// nothing that did not pass Access even if another route to the Worker appeared.
-import { createRemoteJWKSet, jwtVerify } from "jose";
 import { STATION_SNAPSHOT } from "../lib/station-snapshot.js";
-
-interface Env { CF_ACCESS_TEAM_DOMAIN: string; CF_ACCESS_AUD: string }
 
 const BASE = "https://kyfw.12306.cn";
 const INIT_URL = `${BASE}/otn/leftTicket/init`;
@@ -129,20 +122,9 @@ async function handleQuery(url: URL): Promise<Response> {
   return json({ error: `12306 查询失败（${errors.join(" | ")}）` }, 502);
 }
 
-// ---- Cloudflare Access JWT ----------------------------------------------------------
-let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
-async function accessOk(req: Request, env: Env): Promise<boolean> {
-  const m = (req.headers.get("cookie") || "").match(/(?:^|;\s*)CF_Authorization=([^;]+)/);
-  const token = req.headers.get("cf-access-jwt-assertion") || (m ? m[1] : null);
-  if (!token) return false;
-  jwks ??= createRemoteJWKSet(new URL(`https://${env.CF_ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs`));
-  try { await jwtVerify(token, jwks, { issuer: `https://${env.CF_ACCESS_TEAM_DOMAIN}`, audience: env.CF_ACCESS_AUD }); return true; } catch { return false; }
-}
-
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
-    if (!(await accessOk(req, env))) return json({ error: "未授权：请通过 train.deyaochen.com 访问并登录 Cloudflare Access" }, 401);
     if (url.pathname === "/api/query") return handleQuery(url);
     return json({ error: "not found" }, 404);
   },
