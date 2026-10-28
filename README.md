@@ -50,4 +50,4 @@ npm run build      # dist/
 Pushing to `main` deploys to Vercel via `.github/workflows/deploy-vercel.yml`.
 
 Notes: 12306 returns same-city stations too (a 深圳北→香港西九龙 query also lists 福田 departures);
-the app keeps only exact from/to matches. Cross-border G trains show `无座 --`.
+`api/query.ts` keeps only rows whose boarding/alighting telecodes (@6/@7) are the queried ones. Cross-border G trains show `无座 --`.

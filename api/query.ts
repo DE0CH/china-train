@@ -123,9 +123,10 @@ async function query(from: string, to: string, date: string, proxy: boolean) {
   return data.data as { result: string[]; map: Record<string, string> };
 }
 
-function parseRows(rows: string[], names: Record<string, string>) {
-  return rows.map((row) => {
-    const f = row.split("|");
+// 12306 answers with every station in the queried cities (深圳北→香港西九龙 also lists 福田 and 深圳
+// departures), so keep only rows whose boarding and alighting stations are the ones asked for
+function parseRows(rows: string[], names: Record<string, string>, fromCode: string, toCode: string) {
+  return rows.map((row) => row.split("|")).filter((f) => f[FIELD.fromCode] === fromCode && f[FIELD.toCode] === toCode).map((f) => {
     const seat = (i: number) => (f[i] ?? "").trim() || "--";
     // 12306's inline map only covers the queried stations; origin/terminus need the full list
     const name = (code: string) => names[code] || codeToName.get(code) || code;
@@ -162,7 +163,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const data = await query(fromCode, toCode, date, a.proxy);
       res.setHeader("Cache-Control", "no-store");
-      return res.status(200).json({ trains: parseRows(data.result || [], data.map || {}), via: a.proxy ? "proxy" : "direct", path: session?.path });
+      return res.status(200).json({ trains: parseRows(data.result || [], data.map || {}, fromCode, toCode), via: a.proxy ? "proxy" : "direct", path: session?.path });
     } catch (e: any) {
       // undici reports network errors as "fetch failed"; the real reason (ECONNRESET, timeout…) is in .cause
       if (!a.proxy) markDirect(e);
