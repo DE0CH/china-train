@@ -1,6 +1,7 @@
 name: Deploy to Cloudflare
 
-# Every push to main deploys; every Monday the national timetable is crawled again (crawler/).
+# Every push to main deploys; every Monday the national timetable is crawled again (crawler/:
+# the search API's finds plus the seeds, the last timetable and crawler/seed-trains.json).
 # A push reuses the cached timetable while it is under 7 days old. If a crawl fails and an older
 # copy is cached, that copy is deployed (and the run says so); without any copy the deploy fails
 # and the live version stays.
@@ -68,7 +69,9 @@ jobs:
         run: |
           cargo build --release --manifest-path crawler/Cargo.toml
           mkdir -p public
-          TZ=Asia/Shanghai crawler/target/release/timetable /tmp/timetable.json
+          seeds="--seed crawler/seed-trains.json"
+          [ -s public/timetable.json ] && seeds="$seeds --seed public/timetable.json"
+          TZ=Asia/Shanghai crawler/target/release/timetable /tmp/timetable.json $seeds --search-minutes 20
           mv /tmp/timetable.json public/timetable.json
           echo "trains: $(jq '.trains | length' public/timetable.json), stations: $(jq '.stations | length' public/timetable.json)"
 

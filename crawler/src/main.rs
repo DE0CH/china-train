@@ -1,7 +1,8 @@
 // Builds the national timetable the route planner searches: every station (12306's station_name.js)
 // and every train with its stops and times, written as one compact JSON file.
 //
-//   timetable OUT.json [YYYY-MM-DD …]      (default dates: the next Wednesday and the next Saturday)
+//   timetable OUT.json [--seed FILE]… [--search-minutes N] [YYYY-MM-DD …]
+//   (default dates: the next Wednesday and the next Saturday)
 //
 // Sources, all 12306's own and free (12306's transfer planner, lcquery, refuses every route that
 // touches 香港西九龙, so the app plans itself):
@@ -10,6 +11,11 @@
 //     keyword returns fewer. It blocks an IP (HTTP 403) after a burst: slow, with backoff.
 //   - stops: kyfw.12306.cn/otn/queryTrainInfo/query?leftTicketDTO.train_no=…&leftTicketDTO.train_date=…
 //     (no cookie needed, takes ~15 requests/s).
+// The search API also blocks whole networks, so it gets a time budget (--search-minutes, default
+// 20) and its failures are not fatal: the train list is the union of what it found and the seeds
+// (a previous timetable.json, or crawler/seed-trains.json, a JSON list of {train_no,
+// station_train_code}). Every candidate's stops are then fetched for the crawl dates; a seed
+// train with no stops on either date no longer runs and drops out.
 // A train only running on other days is missed; the dates cover a weekday and a weekend day.
 use anyhow::{bail, Context, Result};
 use chrono::{Datelike, Duration, Local, NaiveDate, Weekday};
@@ -56,17 +62,17 @@ async fn stations(c: &reqwest::Client) -> Result<Vec<[String; 5]>> {
     Ok(out)
 }
 
-async fn list_trains(c: &reqwest::Client, date: NaiveDate) -> Result<Vec<Listed>> {
+async fn list_trains(c: &reqwest::Client, date: NaiveDate, trains: &mut BTreeMap<String, (String, Option<NaiveDate>)>) -> Result<()> {
     let d = date.format("%Y%m%d").to_string();
-    let mut trains: HashMap<String, Listed> = HashMap::new();
     let mut front: Vec<String> = FIRST.chars().map(String::from).collect();
     let mut calls = 0;
+    let mut found = 0;
     while !front.is_empty() {
         let results: Vec<(String, Result<Vec<Listed>>)> = stream::iter(front.clone())
             .map(|k| { let d = &d; async move {
                 let url = format!("https://search.12306.cn/search/v1/train/search?keyword={k}&date={d}");
                 let r = async {
-                    let t = get_text(c, &url, 8, 20).await?;
+                    let t = get_text(c, &url, 4, 20).await?;
                     let v: Value = serde_json::from_str(&t).context("search: not JSON")?;
                     Ok(serde_json::from_value::<Vec<Listed>>(v["data"].clone()).unwrap_or_default())
                 }.await;
@@ -80,12 +86,25 @@ async fn list_trains(c: &reqwest::Client, date: NaiveDate) -> Result<Vec<Listed>
         for (k, r) in results {
             let r = r?;
             if r.len() >= 99 && k.chars().count() < 6 { next.extend("0123456789".chars().map(|ch| format!("{k}{ch}"))) }
-            for t in r { trains.insert(t.train_no.clone(), t); }
+            for t in r { found += 1; trains.entry(t.train_no).or_insert((t.station_train_code, Some(date))); }
         }
         front = next;
     }
-    eprintln!("{date}: {} trains in {calls} searches", trains.len());
-    Ok(trains.into_values().collect())
+    eprintln!("{date}: {found} trains in {calls} searches");
+    Ok(())
+}
+
+// seeds: a previous timetable.json ({"trains": [[code, train_no, stops]…]}) or a list of {train_no, station_train_code}
+fn read_seed(path: &str, trains: &mut BTreeMap<String, (String, Option<NaiveDate>)>) -> Result<()> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(path).with_context(|| format!("seed {path}"))?)?;
+    let before = trains.len();
+    if let Some(list) = v["trains"].as_array() {
+        for t in list { if let (Some(code), Some(no)) = (t[0].as_str(), t[1].as_str()) { trains.entry(no.into()).or_insert((code.into(), None)); } }
+    } else if let Some(list) = v.as_array() {
+        for t in list { if let (Some(code), Some(no)) = (t["station_train_code"].as_str(), t["train_no"].as_str()) { trains.entry(no.into()).or_insert((code.into(), None)); } }
+    }
+    eprintln!("seed {path}: {} new trains", trains.len() - before);
+    Ok(())
 }
 
 fn minutes(hm: &str) -> Option<i64> {
@@ -95,37 +114,53 @@ fn minutes(hm: &str) -> Option<i64> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let out = args.get(1).context("usage: timetable OUT.json [YYYY-MM-DD …]")?;
-    let dates: Vec<NaiveDate> = if args.len() > 2 {
-        args[2..].iter().map(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d")).collect::<Result<_, _>>()?
-    } else {
+    let mut args = std::env::args().skip(1);
+    let out = args.next().context("usage: timetable OUT.json [--seed FILE]… [--search-minutes N] [YYYY-MM-DD …]")?;
+    let (mut seeds, mut search_minutes, mut dates) = (Vec::new(), 20u64, Vec::new());
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--seed" => seeds.push(args.next().context("--seed FILE")?),
+            "--search-minutes" => search_minutes = args.next().context("--search-minutes N")?.parse()?,
+            d => dates.push(NaiveDate::parse_from_str(d, "%Y-%m-%d")?),
+        }
+    }
+    if dates.is_empty() {
         let today = Local::now().date_naive();
-        [Weekday::Wed, Weekday::Sat].iter().map(|w| {
+        dates = [Weekday::Wed, Weekday::Sat].iter().map(|w| {
             let mut d = today + Duration::days(1);
             while d.weekday() != *w { d += Duration::days(1) }
             d
-        }).collect()
-    };
+        }).collect();
+    }
     let c = reqwest::Client::builder().user_agent(UA).timeout(StdDuration::from_secs(30)).gzip(true).build()?;
 
     let st = stations(&c).await?;
     let idx: HashMap<String, usize> = st.iter().enumerate().map(|(i, s)| (s[1].clone(), i)).collect();
 
-    // train_no → (code, a date it runs)
-    let mut listed: BTreeMap<String, (String, NaiveDate)> = BTreeMap::new();
+    // train_no → (code, a date it is known to run)
+    let mut listed: BTreeMap<String, (String, Option<NaiveDate>)> = BTreeMap::new();
+    let deadline = tokio::time::Instant::now() + StdDuration::from_secs(search_minutes * 60);
     for d in &dates {
-        for t in list_trains(&c, *d).await? { listed.entry(t.train_no).or_insert((t.station_train_code, *d)); }
+        match tokio::time::timeout_at(deadline, list_trains(&c, *d, &mut listed)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => { eprintln!("search for {d} failed ({e}); continuing with what was found and the seeds"); break }
+            Err(_) => { eprintln!("search ran out of its {search_minutes} min; continuing with what was found and the seeds"); break }
+        }
     }
-
+    eprintln!("search found {} trains", listed.len());
+    for p in &seeds { read_seed(p, &mut listed)?; }
     let fetched: Vec<Option<Value>> = stream::iter(listed.iter())
-        .map(|(no, (code, d))| {
-            let c = &c; let idx = &idx;
+        .map(|(no, (code, known))| {
+            let c = &c; let idx = &idx; let dates = &dates;
             async move {
-                let url = format!("https://kyfw.12306.cn/otn/queryTrainInfo/query?leftTicketDTO.train_no={no}&leftTicketDTO.train_date={d}&rand_code=");
-                let t = match get_text(c, &url, 5, 5).await { Ok(t) => t, Err(e) => { eprintln!("{e}"); return None } };
-                let v: Value = serde_json::from_str(&t).ok()?;
-                let stops: Vec<Stop> = serde_json::from_value(v["data"]["data"].clone()).ok()?;
+                let mut stops: Vec<Stop> = Vec::new();
+                for d in known.iter().chain(dates.iter().filter(|d| Some(**d) != *known)) {
+                    let url = format!("https://kyfw.12306.cn/otn/queryTrainInfo/query?leftTicketDTO.train_no={no}&leftTicketDTO.train_date={d}&rand_code=");
+                    let t = match get_text(c, &url, 5, 5).await { Ok(t) => t, Err(e) => { eprintln!("{e}"); return None } };
+                    let v: Value = serde_json::from_str(&t).ok()?;
+                    stops = serde_json::from_value(v["data"]["data"].clone()).unwrap_or_default();
+                    if !stops.is_empty() { break }
+                }
                 // flat [station index, arrive, depart] in minutes from the first departure day's midnight
                 let mut flat = Vec::new();
                 for s in &stops {
@@ -144,9 +179,8 @@ async fn main() -> Result<()> {
         .buffer_unordered(12)
         .collect().await;
     let trains: Vec<Value> = fetched.into_iter().flatten().collect();
-    let missing = listed.len() - trains.len();
-    eprintln!("stops for {} of {} trains", trains.len(), listed.len());
-    if missing * 20 > listed.len() { bail!("too many trains without stops ({missing})") }
+    eprintln!("stops for {} of {} trains (the rest do not run on the crawl dates)", trains.len(), listed.len());
+    if trains.len() < 5000 { bail!("only {} trains with stops; something is wrong", trains.len()) }
 
     let doc = json!({
         "generated": Local::now().to_rfc3339(),
@@ -154,6 +188,6 @@ async fn main() -> Result<()> {
         "stations": st,
         "trains": trains,
     });
-    std::fs::write(out, serde_json::to_string(&doc)?)?;
+    std::fs::write(&out, serde_json::to_string(&doc)?)?;
     Ok(())
 }

@@ -50,7 +50,7 @@ on deyaochen.com).
 
 ```bash
 npm install
-cargo run --release --manifest-path crawler/Cargo.toml -- public/timetable.json   # ~20 min
+cargo run --release --manifest-path crawler/Cargo.toml -- public/timetable.json --seed crawler/seed-trains.json   # ~10 min
 npm run dev        # the page; /api needs `npx wrangler dev` (run `npm run build` first)
 npm run lint       # tsc for the page and the Worker
 npm run build      # dist/
