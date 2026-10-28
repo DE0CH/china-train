@@ -13,13 +13,14 @@ function readPrefs<T>(key: string, fallback: T): T {
 }
 function writePrefs(key: string, v: unknown) { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* private mode */ } }
 
-// ---- icons: one set, 24 viewBox, 2px stroke ----------------------------------------------------
+// ---- icons: one set, 24 viewBox, 2px stroke, square caps ------------------------------------------
 const Icon = ({ d, size = 20 }: { d: string; size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="square" aria-hidden="true"><path d={d} /></svg>
 );
 const SWAP = "M7 4v16M7 20l-4-4M7 20l4-4M17 20V4M17 4l-4 4M17 4l4 4";
 const CHEVRON_DOWN = "M6 9l6 6 6-6";
 const CHEVRON_UP = "M6 15l6-6 6 6";
+const CROSS = "M6 6l12 12M18 6L6 18";
 
 // ---- station picker: a station-name sign you can type into ---------------------------------------
 function StationPicker({ tt, label, value, onChange, recent, align }: {
@@ -53,6 +54,7 @@ function StationPicker({ tt, label, value, onChange, recent, align }: {
   const id = `pick-${label}`;
   return (
     <div className={`sign sign-${align}`} ref={box}>
+      <span className="sign-track" aria-hidden="true"><span className="node" /></span>
       <label htmlFor={id}>{label}</label>
       <input
         id={id} value={text} placeholder={tt ? "站名、拼音或首字母" : "正在载入车站"} disabled={!tt}
@@ -82,56 +84,94 @@ const legKey = (tt: Timetable, l: Leg, date: string) => `${tt.stations[l.from].c
 
 function SeatList({ s }: { s?: LegState }) {
   if (!s) return <span className="seats pending">正在查询余票</span>;
-  if (s.error) return <span className="seats bad">余票查询失败</span>;
-  if (s.missing) return <span className="seats bad">当日不开行</span>;
+  if (s.error) return <span className="seats bad"><Icon d={CROSS} size={16} />余票查询失败</span>;
+  if (s.missing) return <span className="seats bad"><Icon d={CROSS} size={16} />当日不开行</span>;
   const state = (v: string) => (v === "有" || /^\d+$/.test(v) ? "ok" : "none");
   const items: Array<[string, string]> = [["商务", s.seats!.sw], ["一等", s.seats!.yd], ["二等", s.seats!.ed], ["无座", s.seats!.wz]];
   return (
     <span className="seats">
       {!s.seats!.canBuy && <span className="seat none">暂不售票</span>}
       {items.filter(([, v]) => v !== "--").map(([k, v]) => (
-        <span key={k} className={`seat ${state(v)}`}>{k}<b>{v}</b></span>
+        <span key={k} className={`seat ${state(v)}`}><span>{k}</span><b>{v}</b></span>
       ))}
     </span>
   );
 }
 
 const trainClass = (code: string) => (/^[GCD]/.test(code) ? code[0] : "P");
+const CLASS_NAME: Record<string, string> = { G: "高铁", D: "动车", C: "城际", P: "普速" };
+
+// ---- a route drawn as a line diagram: station nodes, one coloured line per train, interchanges ----
+function Stop({ name, times, note, pos, inLine, outLine, xchg }: {
+  name: string; times: Array<[string, string]>; note?: string; pos: "first" | "mid" | "last"; inLine?: string; outLine?: string; xchg?: boolean;
+}) {
+  return (
+    <li className={`stop stop-${pos}${inLine ? ` in-${inLine}` : ""}${outLine ? ` out-${outLine}` : ""}`}>
+      <span className="track" aria-hidden="true"><span className={xchg ? "node xchg" : "node"} /></span>
+      <span className="stop-text">
+        <span className="stop-name">{name}</span>
+        {times.map(([t, k]) => <span key={k} className="stop-time"><b>{t}</b>{k && <span>{k}</span>}</span>)}
+        {note && <span className="stop-note">{note}</span>}
+      </span>
+    </li>
+  );
+}
 
 function RouteRow({ tt, r, date, legs }: { tt: Timetable; r: Route; date: string; legs: Map<string, LegQuery> }) {
   const st = (i: number) => tt.stations[i].name;
+  const info = r.legs.map((l) => {
+    const q = legs.get(legKey(tt, l, date));
+    const ls: LegState | undefined = !q ? undefined : q.error ? { error: q.error }
+      : q.byTrain!.has(l.trainNo) ? { seats: q.byTrain!.get(l.trainNo) } : { missing: true };
+    const code = ls?.seats?.code || l.train;
+    return { l, ls, code, cls: trainClass(code) };
+  });
+  const parts: JSX.Element[] = [];
+  info.forEach(({ l, ls, code, cls }, k) => {
+    if (k === 0) parts.push(<Stop key="s0" pos="first" name={st(l.from)} times={[[clock(l.depart), "开"]]} outLine={cls} />);
+    else {
+      const p = info[k - 1], wait = span(l.depart - p.l.arrive);
+      if (p.l.to === l.from) {
+        parts.push(<Stop key={`x${k}`} pos="mid" xchg name={st(l.from)} times={[[clock(p.l.arrive), "到"], [clock(l.depart), "开"]]} note={`换乘，等候${wait}`} inLine={p.cls} outLine={cls} />);
+      } else {
+        parts.push(<Stop key={`a${k}`} pos="mid" xchg name={st(p.l.to)} times={[[clock(p.l.arrive), "到"]]} inLine={p.cls} outLine="W" />);
+        parts.push(
+          <li key={`w${k}`} className="walk" style={{ flexGrow: l.depart - p.l.arrive }}>
+            <span className="track" aria-hidden="true"><span className="bar" /></span>
+            <span className="walk-text">{st(p.l.to)}出站，到{st(l.from)}换乘，等候{wait}</span>
+          </li>
+        );
+        parts.push(<Stop key={`b${k}`} pos="mid" xchg name={st(l.from)} times={[[clock(l.depart), "开"]]} inLine="W" outLine={cls} />);
+      }
+    }
+    parts.push(
+      <li key={`l${k}`} className={`leg line-${cls}`} style={{ flexGrow: l.arrive - l.depart }}>
+        <span className="track" aria-hidden="true"><span className="bar" /></span>
+        <span className="leg-info">
+          <span className="leg-head"><span className="train">{code}</span><span className="leg-dur">{CLASS_NAME[cls]}，{span(l.arrive - l.depart)}</span></span>
+          <SeatList s={ls} />
+        </span>
+      </li>
+    );
+    if (k === info.length - 1) parts.push(<Stop key="end" pos="last" name={st(l.to)} times={[[clock(l.arrive), "到"]]} inLine={cls} />);
+  });
+  // one verdict for the whole route: every leg needs at least one class on sale
+  const avail = (x?: Seats) => !!x && x.canBuy && [x.sw, x.yd, x.ed, x.wz].some((v) => v === "有" || /^\d+$/.test(v));
+  const verdict = info.some((i) => !i.ls) ? "pending" : info.some((i) => i.ls!.error) ? "error"
+    : info.every((i) => avail(i.ls!.seats)) ? "ok" : "none";
   return (
     <li className="route">
       <div className="when">
         <span className="t">{clock(r.depart)}</span>
         <span className="t arr">{clock(r.arrive)}</span>
         <span className="dur">{span(r.arrive - r.depart)}</span>
+        <span className="kind">{r.transfers ? `中转${r.transfers}次` : "直达"}</span>
+        <span className={`verdict v-${verdict}`}>
+          {verdict !== "pending" && <span className="pip" aria-hidden="true" />}
+          {{ pending: "查询中", error: "查询失败", ok: "有票", none: "无票" }[verdict]}
+        </span>
       </div>
-      <div className="legs">
-        {r.legs.map((l, k) => {
-          const q = legs.get(legKey(tt, l, date));
-          const ls: LegState | undefined = !q ? undefined : q.error ? { error: q.error }
-            : q.byTrain!.has(l.trainNo) ? { seats: q.byTrain!.get(l.trainNo) } : { missing: true };
-          return (
-            <div key={k} className="leg-wrap">
-              {k > 0 && (
-                <p className="change">
-                  {r.legs[k - 1].to === l.from ? `${st(l.from)}换乘` : `${st(r.legs[k - 1].to)}出站，到${st(l.from)}换乘`}，等候{span(l.depart - r.legs[k - 1].arrive)}
-                </p>
-              )}
-              <div className="leg">
-                <span className={`train c-${trainClass(ls?.seats?.code || l.train)}`}>{ls?.seats?.code || l.train}</span>
-                <span className="leg-route">
-                  <span>{st(l.from)} <b>{clock(l.depart)}</b></span>
-                  <span className="rail" aria-hidden="true" />
-                  <span>{st(l.to)} <b>{clock(l.arrive)}</b></span>
-                </span>
-                <SeatList s={ls} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <ol className="diagram" aria-label="路线">{parts}</ol>
     </li>
   );
 }
@@ -215,7 +255,10 @@ export default function App() {
       <section className="board" aria-label="查询">
         <div className="ends">
           <StationPicker tt={tt} label="出发站" value={from} onChange={(i) => { setFrom(i); remember(i); }} recent={recentIdx} align="start" />
-          <button className="swap" type="button" aria-label="交换出发站和到达站" onClick={() => { setFrom(to); setTo(from); }}><Icon d={SWAP} /><span className="swap-label">交换</span></button>
+          <div className="swap-cell">
+            <button className="swap" type="button" aria-label="交换出发站和到达站" onClick={() => { setFrom(to); setTo(from); }}><Icon d={SWAP} /></button>
+            <span className="swap-label" aria-hidden="true">交换</span>
+          </div>
           <StationPicker tt={tt} label="到达站" value={to} onChange={(i) => { setTo(i); remember(i); }} recent={recentIdx} align="end" />
         </div>
 
@@ -265,6 +308,14 @@ export default function App() {
             </div>
             <span className="count">{visible.length} 个方案{pending ? "，正在核对余票" : ""}{hidden ? `，${hidden} 个当日不开行已隐藏` : ""}</span>
           </div>
+          {visible.length > 0 && (
+            <ul className="legend" aria-label="线路颜色">
+              {(["G", "D", "C", "P"] as const).filter((c) => visible.some((r) => r.legs.some((l) => trainClass(l.train) === c))).map((c) => (
+                <li key={c}><span className={`swatch line-${c}`} aria-hidden="true" />{CLASS_NAME[c]}</li>
+              ))}
+              {visible.some((r) => r.legs.some((l, k) => k > 0 && r.legs[k - 1].to !== l.from)) && <li><span className="swatch walk-swatch" aria-hidden="true" />出站换乘</li>}
+            </ul>
+          )}
           {visible.length === 0 && !pending && <p className="empty">没有找到方案。在换乘设置里延长最长等候，或勾选同城其他车站，再看一次。</p>}
           <ol className="routes">
             {visible.map((r, i) => <RouteRow key={i} tt={tt} r={r} date={date} legs={legs} />)}
