@@ -23,6 +23,22 @@ const CHEVRON_UP = "M6 15l6-6 6 6";
 const CROSS = "M6 6l12 12M18 6L6 18";
 
 // ---- station picker: a station-name sign you can type into ---------------------------------------
+// Holds the typed text so the box can be emptied while editing; only a whole number in range
+// reaches the planner, and leaving the box restores the value in effect.
+function MinutesInput({ value, min, max, onChange }: { value: number; min: number; max: number; onChange: (v: number) => void }) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  return (
+    <input type="number" inputMode="numeric" min={min} max={max} value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const v = Number(e.target.value);
+        if (e.target.value !== "" && Number.isInteger(v) && v >= min && v <= max) onChange(v);
+      }}
+      onBlur={() => setText(String(value))} />
+  );
+}
+
 function StationPicker({ tt, label, value, onChange, recent, align }: {
   tt: Timetable | null; label: string; value: number | null; onChange: (i: number) => void; recent: number[]; align: "start" | "end";
 }) {
@@ -288,9 +304,9 @@ export default function App() {
 
         {showOpts && (
           <div className="opts">
-            <label>同站换乘至少 <input type="number" min={0} max={120} value={opts.sameStationChange} onChange={(e) => setOpts({ ...opts, sameStationChange: +e.target.value || 0 })} /> 分钟</label>
-            <label>同城换站至少 <input type="number" min={0} max={240} value={opts.crossTownChange} onChange={(e) => setOpts({ ...opts, crossTownChange: +e.target.value || 0 })} /> 分钟</label>
-            <label>最长等候 <input type="number" min={10} max={720} value={opts.maxWait} onChange={(e) => setOpts({ ...opts, maxWait: +e.target.value || 0 })} /> 分钟</label>
+            <label>同站换乘至少 <MinutesInput min={0} max={120} value={opts.sameStationChange} onChange={(v) => setOpts({ ...opts, sameStationChange: v })} /> 分钟</label>
+            <label>同城换站至少 <MinutesInput min={0} max={240} value={opts.crossTownChange} onChange={(v) => setOpts({ ...opts, crossTownChange: v })} /> 分钟</label>
+            <label>最长等候 <MinutesInput min={10} max={720} value={opts.maxWait} onChange={(v) => setOpts({ ...opts, maxWait: v })} /> 分钟</label>
             <label className="check"><input type="checkbox" checked={opts.sameCityEnds} onChange={(e) => setOpts({ ...opts, sameCityEnds: e.target.checked })} /> 也从同城其他车站出发、到达</label>
           </div>
         )}
