@@ -6,21 +6,31 @@ const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padS
 const WEEK = "日一二三四五六";
 const PRESETS: Array<[string, string]> = [["香港西九龙", "深圳坪山"], ["深圳坪山", "香港西九龙"]];
 const short = (name: string) => name.replace(/^(香港|深圳)(?=..)/, "");
+const pinyinLabel = (p: string) => p.charAt(0).toUpperCase() + p.slice(1);
 
 function readPrefs<T>(key: string, fallback: T): T {
   try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : fallback; } catch { return fallback; }
 }
 function writePrefs(key: string, v: unknown) { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* private mode */ } }
 
-// ---- station picker ---------------------------------------------------------------------------
-function StationPicker({ tt, label, value, onChange, recent }: {
-  tt: Timetable | null; label: string; value: number | null; onChange: (i: number) => void; recent: number[];
+// ---- icons: one set, 24 viewBox, 2px stroke ----------------------------------------------------
+const Icon = ({ d, size = 20 }: { d: string; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="square" aria-hidden="true"><path d={d} /></svg>
+);
+const SWAP = "M7 4v16M7 20l-4-4M7 20l4-4M17 20V4M17 4l-4 4M17 4l4 4";
+const CHEVRON_DOWN = "M6 9l6 6 6-6";
+const CHEVRON_UP = "M6 15l6-6 6 6";
+
+// ---- station picker: a station-name sign you can type into ---------------------------------------
+function StationPicker({ tt, label, value, onChange, recent, align }: {
+  tt: Timetable | null; label: string; value: number | null; onChange: (i: number) => void; recent: number[]; align: "start" | "end";
 }) {
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
   const box = useRef<HTMLDivElement>(null);
-  const shown = value !== null && tt ? tt.stations[value].name : "";
+  const station = value !== null && tt ? tt.stations[value] : null;
+  const shown = station?.name ?? "";
   useEffect(() => { if (!open) setText(shown); }, [shown, open]);
   useEffect(() => {
     const close = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
@@ -40,21 +50,23 @@ function StationPicker({ tt, label, value, onChange, recent }: {
     else if (e.key === "Enter" && open && hits[hi] !== undefined) { e.preventDefault(); pick(hits[hi]); }
     else if (e.key === "Escape") setOpen(false);
   };
+  const id = `pick-${label}`;
   return (
-    <div className="picker" ref={box}>
-      <label>{label}</label>
+    <div className={`sign sign-${align}`} ref={box}>
+      <label htmlFor={id}>{label}</label>
       <input
-        value={text} placeholder={tt ? "站名 / 拼音 / 首字母" : "加载车站…"} disabled={!tt}
+        id={id} value={text} placeholder={tt ? "站名、拼音或首字母" : "正在载入车站"} disabled={!tt}
         onFocus={(e) => { setOpen(true); e.target.select(); }} onChange={(e) => { setText(e.target.value); setOpen(true); }} onKeyDown={key}
-        autoComplete="off" spellCheck={false}
+        autoComplete="off" spellCheck={false} role="combobox" aria-expanded={open} aria-controls={`${id}-list`}
       />
+      <span className="pinyin">{station && !open ? pinyinLabel(station.pinyin) : " "}</span>
       {open && tt && hits.length > 0 && (
-        <ul className="suggest">
-          {!text.trim() || text === shown ? <li className="suggest-head">最近使用</li> : null}
+        <ul className="suggest" id={`${id}-list`} role="listbox">
+          {!text.trim() || text === shown ? <li className="suggest-head" aria-hidden="true">最近使用</li> : null}
           {hits.map((i, k) => (
-            <li key={i} className={k === hi ? "on" : ""} onMouseDown={(e) => { e.preventDefault(); pick(i); }} onMouseEnter={() => setHi(k)}>
+            <li key={i} role="option" aria-selected={k === hi} className={k === hi ? "on" : ""} onMouseDown={(e) => { e.preventDefault(); pick(i); }} onMouseEnter={() => setHi(k)}>
               <span className="s-name">{tt.stations[i].name}</span>
-              <span className="s-meta">{tt.stations[i].city !== tt.stations[i].name ? tt.stations[i].city + " · " : ""}{tt.stations[i].pinyin}</span>
+              <span className="s-meta">{tt.stations[i].city !== tt.stations[i].name ? `${tt.stations[i].city}　` : ""}{pinyinLabel(tt.stations[i].pinyin)}</span>
             </li>
           ))}
         </ul>
@@ -65,56 +77,62 @@ function StationPicker({ tt, label, value, onChange, recent }: {
 
 // ---- seats ------------------------------------------------------------------------------------
 type LegState = { seats?: Seats; missing?: boolean; error?: string };
+type LegQuery = { byTrain: Map<string, Seats>; error?: undefined } | { error: string; byTrain?: undefined };
 const legKey = (tt: Timetable, l: Leg, date: string) => `${tt.stations[l.from].code}|${tt.stations[l.to].code}|${addDays(date, Math.floor(l.depart / 1440))}`;
 
-function SeatChips({ s }: { s?: LegState }) {
-  if (!s) return <span className="seats loading">查询余票…</span>;
-  if (s.error) return <span className="seats err">余票查询失败</span>;
-  if (s.missing) return <span className="seats err">当日不开行</span>;
-  const cls = (v: string) => (v === "有" || /^\d+$/.test(v) ? "ok" : v === "无" ? "none" : "na");
+function SeatList({ s }: { s?: LegState }) {
+  if (!s) return <span className="seats pending">正在查询余票</span>;
+  if (s.error) return <span className="seats bad">余票查询失败</span>;
+  if (s.missing) return <span className="seats bad">当日不开行</span>;
+  const state = (v: string) => (v === "有" || /^\d+$/.test(v) ? "ok" : "none");
   const items: Array<[string, string]> = [["商务", s.seats!.sw], ["一等", s.seats!.yd], ["二等", s.seats!.ed], ["无座", s.seats!.wz]];
   return (
     <span className="seats">
-      {items.filter(([, v]) => v !== "--").map(([k, v]) => <span key={k} className={`chip ${cls(v)}`}>{k} {v === "有" ? "有" : v === "无" ? "无" : v}</span>)}
-      {!s.seats!.canBuy && <span className="chip na">未开售</span>}
+      {!s.seats!.canBuy && <span className="seat none">暂不售票</span>}
+      {items.filter(([, v]) => v !== "--").map(([k, v]) => (
+        <span key={k} className={`seat ${state(v)}`}>{k}<b>{v}</b></span>
+      ))}
     </span>
   );
 }
 
-type LegQuery = { byTrain: Map<string, Seats>; error?: undefined } | { error: string; byTrain?: undefined };
+const trainClass = (code: string) => (/^[GCD]/.test(code) ? code[0] : "P");
 
-function RouteCard({ tt, r, date, legs }: { tt: Timetable; r: Route; date: string; legs: Map<string, LegQuery> }) {
+function RouteRow({ tt, r, date, legs }: { tt: Timetable; r: Route; date: string; legs: Map<string, LegQuery> }) {
   const st = (i: number) => tt.stations[i].name;
   return (
-    <article className="route">
-      <header>
-        <div className="times">
-          <span className="t">{clock(r.depart)}</span>
-          <span className="arrow"><span>{span(r.arrive - r.depart)}</span></span>
-          <span className="t">{clock(r.arrive)}</span>
-        </div>
-        <span className={`badge ${r.transfers ? "xfer" : "direct"}`}>{r.transfers ? "中转 1 次" : "直达"}</span>
-      </header>
-      {r.legs.map((l, k) => {
-        const q = legs.get(legKey(tt, l, date));
-        const legState: LegState | undefined = !q ? undefined : q.error ? { error: q.error }
-          : q.byTrain!.has(l.trainNo) ? { seats: q.byTrain!.get(l.trainNo) } : { missing: true };
-        return (
-          <div key={k}>
-            {k > 0 && (
-              <div className="change">
-                {r.legs[k - 1].to === l.from ? `在 ${st(l.from)} 换乘` : `${st(r.legs[k - 1].to)} → ${st(l.from)} 同城换乘`} · 等 {span(l.depart - r.legs[k - 1].arrive)}
+    <li className="route">
+      <div className="when">
+        <span className="t">{clock(r.depart)}</span>
+        <span className="t arr">{clock(r.arrive)}</span>
+        <span className="dur">{span(r.arrive - r.depart)}</span>
+      </div>
+      <div className="legs">
+        {r.legs.map((l, k) => {
+          const q = legs.get(legKey(tt, l, date));
+          const ls: LegState | undefined = !q ? undefined : q.error ? { error: q.error }
+            : q.byTrain!.has(l.trainNo) ? { seats: q.byTrain!.get(l.trainNo) } : { missing: true };
+          return (
+            <div key={k} className="leg-wrap">
+              {k > 0 && (
+                <p className="change">
+                  {r.legs[k - 1].to === l.from ? `${st(l.from)}换乘` : `${st(r.legs[k - 1].to)}出站，到${st(l.from)}换乘`}，等候{span(l.depart - r.legs[k - 1].arrive)}
+                </p>
+              )}
+              <div className="leg">
+                <span className={`train c-${trainClass(ls?.seats?.code || l.train)}`}>{ls?.seats?.code || l.train}</span>
+                <span className="leg-route">
+                  <span>{st(l.from)} <b>{clock(l.depart)}</b></span>
+                  <span className="rail" aria-hidden="true" />
+                  <span>{st(l.to)} <b>{clock(l.arrive)}</b></span>
+                </span>
+                <SeatList s={ls} />
               </div>
-            )}
-            <div className="leg">
-              <span className="train">{(legState?.seats?.code) || l.train}</span>
-              <span className="leg-route">{st(l.from)} {clock(l.depart)} → {st(l.to)} {clock(l.arrive)}</span>
-              <SeatChips s={legState} />
             </div>
-          </div>
-        );
-      })}
-    </article>
+          );
+        })}
+      </div>
+    </li>
   );
 }
 
@@ -189,62 +207,68 @@ export default function App() {
     <main>
       <header className="top">
         <h1>火车路线规划</h1>
-        <span className="sub">全国时刻表 · 余票实时来自 12306{tt ? ` · 时刻表 ${tt.generated.slice(0, 10)}` : ""}</span>
+        {tt && <p className="sub">时刻表更新于 {tt.generated.slice(5, 10).replace("-", "月")}日，余票实时查询 12306</p>}
       </header>
 
       {loadErr && <p className="error">{loadErr}</p>}
 
-      <section className="panel">
+      <section className="board" aria-label="查询">
         <div className="ends">
-          <StationPicker tt={tt} label="出发" value={from} onChange={(i) => { setFrom(i); remember(i); }} recent={recentIdx} />
-          <button className="swap" type="button" aria-label="交换出发和到达" onClick={() => { setFrom(to); setTo(from); }}>⇄</button>
-          <StationPicker tt={tt} label="到达" value={to} onChange={(i) => { setTo(i); remember(i); }} recent={recentIdx} />
+          <StationPicker tt={tt} label="出发站" value={from} onChange={(i) => { setFrom(i); remember(i); }} recent={recentIdx} align="start" />
+          <button className="swap" type="button" aria-label="交换出发站和到达站" onClick={() => { setFrom(to); setTo(from); }}><Icon d={SWAP} /><span className="swap-label">交换</span></button>
+          <StationPicker tt={tt} label="到达站" value={to} onChange={(i) => { setTo(i); remember(i); }} recent={recentIdx} align="end" />
         </div>
 
-        <div className="days" role="tablist">
+        <div className="days" role="tablist" aria-label="乘车日期">
           {days.map((d) => {
             const iso = isoDate(d);
             const rel = ["今天", "明天", "后天"][Math.round((d.getTime() - today.getTime()) / 86400000)];
             return (
-              <button key={iso} type="button" className={iso === date ? "day on" : "day"} onClick={() => setDate(iso)}>
+              <button key={iso} type="button" role="tab" aria-selected={iso === date} className={iso === date ? "day on" : "day"} onClick={() => setDate(iso)}>
                 <span>{rel ?? `周${WEEK[d.getDay()]}`}</span>
-                <b>{d.getMonth() + 1}/{d.getDate()}</b>
+                <b>{d.getMonth() + 1}.{d.getDate()}</b>
               </button>
             );
           })}
         </div>
 
-        <div className="presets">
+        <div className="tools">
           {PRESETS.map(([a, b]) => (
             <button key={a + b} type="button" className="preset" onClick={() => { if (!tt) return; setFrom(tt.stations.findIndex((s) => s.name === a)); setTo(tt.stations.findIndex((s) => s.name === b)); }}>
-              {short(a)} → {short(b)}
+              {short(a)}到{short(b)}
             </button>
           ))}
-          <button type="button" className="preset ghost" onClick={() => setShowOpts((v) => !v)}>换乘设置 {showOpts ? "▴" : "▾"}</button>
+          <button type="button" className="preset settings" aria-expanded={showOpts} onClick={() => setShowOpts((v) => !v)}>
+            换乘设置 <Icon d={showOpts ? CHEVRON_UP : CHEVRON_DOWN} size={16} />
+          </button>
         </div>
 
         {showOpts && (
           <div className="opts">
             <label>同站换乘至少 <input type="number" min={0} max={120} value={opts.sameStationChange} onChange={(e) => setOpts({ ...opts, sameStationChange: +e.target.value || 0 })} /> 分钟</label>
             <label>同城换站至少 <input type="number" min={0} max={240} value={opts.crossTownChange} onChange={(e) => setOpts({ ...opts, crossTownChange: +e.target.value || 0 })} /> 分钟</label>
-            <label>最长等待 <input type="number" min={10} max={720} value={opts.maxWait} onChange={(e) => setOpts({ ...opts, maxWait: +e.target.value || 0 })} /> 分钟</label>
-            <label className="check"><input type="checkbox" checked={opts.sameCityEnds} onChange={(e) => setOpts({ ...opts, sameCityEnds: e.target.checked })} /> 出发/到达包括同城其他车站</label>
+            <label>最长等候 <input type="number" min={10} max={720} value={opts.maxWait} onChange={(e) => setOpts({ ...opts, maxWait: +e.target.value || 0 })} /> 分钟</label>
+            <label className="check"><input type="checkbox" checked={opts.sameCityEnds} onChange={(e) => setOpts({ ...opts, sameCityEnds: e.target.checked })} /> 也从同城其他车站出发、到达</label>
           </div>
         )}
       </section>
 
       {routes && tt && (
-        <section>
+        <section aria-label="方案">
           <div className="filters">
-            {(["all", "direct", "xfer"] as const).map((f) => (
-              <button key={f} type="button" className={filter === f ? "on" : ""} onClick={() => setFilter(f)}>
-                {{ all: "全部", direct: "直达", xfer: "中转" }[f]}
-              </button>
-            ))}
-            <span className="count">{visible.length} 个方案{pending ? " · 正在核对余票…" : ""}{hidden ? ` · 已隐藏 ${hidden} 个当日不开行` : ""}</span>
+            <div className="seg" role="tablist">
+              {(["all", "direct", "xfer"] as const).map((f) => (
+                <button key={f} type="button" role="tab" aria-selected={filter === f} className={filter === f ? "on" : ""} onClick={() => setFilter(f)}>
+                  {{ all: "全部", direct: "直达", xfer: "中转" }[f]}
+                </button>
+              ))}
+            </div>
+            <span className="count">{visible.length} 个方案{pending ? "，正在核对余票" : ""}{hidden ? `，${hidden} 个当日不开行已隐藏` : ""}</span>
           </div>
-          {visible.length === 0 && !pending && <p className="empty">没有找到方案。可以在「换乘设置」里放宽等待时间，或包括同城其他车站。</p>}
-          {visible.map((r, i) => <RouteCard key={i} tt={tt} r={r} date={date} legs={legs} />)}
+          {visible.length === 0 && !pending && <p className="empty">没有找到方案。在换乘设置里延长最长等候，或勾选同城其他车站，再看一次。</p>}
+          <ol className="routes">
+            {visible.map((r, i) => <RouteRow key={i} tt={tt} r={r} date={date} legs={legs} />)}
+          </ol>
         </section>
       )}
     </main>
