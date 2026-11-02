@@ -6,6 +6,7 @@ const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padS
 const WEEK = "日一二三四五六";
 const PRESETS: Array<[string, string]> = [["香港西九龙", "深圳坪山"], ["深圳坪山", "香港西九龙"]];
 const short = (name: string) => name.replace(/^(香港|深圳)(?=..)/, "");
+const STALE_MIN = 10; // seats older than this are called out, with the refresh button
 const pinyinLabel = (p: string) => p.charAt(0).toUpperCase() + p.slice(1);
 
 function readPrefs<T>(key: string, fallback: T): T {
@@ -21,6 +22,7 @@ const SWAP = "M7 4v16M7 20l-4-4M7 20l4-4M17 20V4M17 4l-4 4M17 4l4 4";
 const CHEVRON_DOWN = "M6 9l6 6 6-6";
 const CHEVRON_UP = "M6 15l6-6 6 6";
 const CROSS = "M6 6l12 12M18 6L6 18";
+const REFRESH = "M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5";
 
 // ---- station picker: a station-name sign you can type into ---------------------------------------
 // Holds the typed text so the box can be emptied while editing; only a whole number in range
@@ -205,6 +207,10 @@ export default function App() {
   const [filter, setFilter] = useState<"all" | "direct" | "xfer">("all");
   const [routes, setRoutes] = useState<Route[] | null>(null);
   const [legs, setLegs] = useState<Map<string, LegQuery>>(new Map());
+  // a search is "checking" until 12306 has answered every leg, then "committed" with the time it finished
+  const [total, setTotal] = useState(0);
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+  const [now, setNow] = useState(() => new Date());
   const [recent, setRecent] = useState<string[]>(() => readPrefs<string[]>("recent", []));
   const run = useRef(0);
 
@@ -228,34 +234,40 @@ export default function App() {
   }, [tt, recent]);
   const remember = (i: number) => { if (!tt) return; const r = [tt.stations[i].name, ...recent.filter((n) => n !== tt.stations[i].name)].slice(0, 8); setRecent(r); writePrefs("recent", r); };
 
-  function search() {
+  function search(fresh = false) {
     if (!tt || from === null || to === null || from === to) return;
     const id = ++run.current;
     writePrefs("last", [tt.stations[from].name, tt.stations[to].name]);
     const rs = plan(tt, from, to, opts);
-    setRoutes(rs);
-    setLegs(new Map());
     // live seats for every leg shown, a few queries at a time
     const keys = [...new Set(rs.flatMap((r) => r.legs.map((l) => legKey(tt, l, date))))];
-    let next = 0;
+    setRoutes(rs);
+    setLegs(new Map());
+    setTotal(keys.length);
+    setCheckedAt(keys.length ? null : new Date());
+    let next = 0, done = 0;
     const worker = async () => {
       while (next < keys.length && run.current === id) {
         const k = keys[next++];
         const [f, t, d] = k.split("|");
         let v: LegQuery;
-        try { v = { byTrain: await seatsFor(f, t, d) }; } catch (e: any) { v = { error: e.message }; }
-        if (run.current === id) setLegs((m) => new Map(m).set(k, v));
+        try { v = { byTrain: await seatsFor(f, t, d, fresh) }; } catch (e: any) { v = { error: e.message }; }
+        if (run.current !== id) return;
+        setLegs((m) => new Map(m).set(k, v));
+        if (++done === keys.length) setCheckedAt(new Date());
       }
     };
     for (let i = 0; i < 4; i++) worker();
   }
   useEffect(() => { if (tt && from !== null && to !== null) search(); /* eslint-disable-next-line */ }, [tt, from, to, date, opts]);
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
 
   // a route is hidden once 12306 says one of its trains does not run that day
   const runs = (r: Route) => r.legs.every((l) => { const s = legs.get(legKey(tt!, l, date)); return !s || !!s.error || s.byTrain!.has(l.trainNo); });
   const visible = routes?.filter(runs).filter((r) => filter === "all" || (filter === "direct" ? r.transfers === 0 : r.transfers > 0)) ?? [];
   const hidden = routes ? routes.filter((r) => !runs(r)).length : 0;
-  const pending = routes ? routes.some((r) => r.legs.some((l) => !legs.has(legKey(tt!, l, date)))) : false;
+  const failed = [...legs.values()].filter((q) => q.error).length;
+  const age = checkedAt ? Math.floor((now.getTime() - checkedAt.getTime()) / 60000) : 0;
 
   const days = Array.from({ length: 15 }, (_, i) => new Date(today.getTime() + i * 86400000));
 
@@ -312,7 +324,32 @@ export default function App() {
         )}
       </section>
 
-      {routes && tt && (
+      {routes && tt && from !== to && (
+        <div className={`status ${!checkedAt ? "s-checking" : failed ? "s-failed" : age >= STALE_MIN ? "s-stale" : "s-ok"}`} role="status">
+          {!checkedAt ? (
+            <>
+              <span className="status-text">
+                <b>正在向 12306 核对余票</b>
+                <span>{routes.length} 个方案，已查 {legs.size}/{total} 段，查完一并列出</span>
+              </span>
+              <span className="meter" aria-hidden="true"><span style={{ width: `${(100 * legs.size) / Math.max(total, 1)}%` }} /></span>
+            </>
+          ) : (
+            <>
+              <span className="pip" aria-hidden="true">{failed > 0 && <Icon d={CROSS} size={14} />}</span>
+              <span className="status-text">
+                <b>{failed ? `${failed} 段余票查询失败` : age >= STALE_MIN ? `余票是 ${age} 分钟前的` : "余票已核对"}</b>
+                <span>{clock(checkedAt.getHours() * 60 + checkedAt.getMinutes())} 查询 12306{failed ? "，相关方案标为查询失败" : ""}</span>
+              </span>
+              <button type="button" className="refresh" onClick={() => search(true)}>
+                <Icon d={REFRESH} size={18} />{failed ? "重试" : "刷新"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {routes && tt && checkedAt && (
         <section aria-label="方案">
           <div className="filters">
             <div className="seg" role="tablist">
@@ -322,7 +359,7 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <span className="count">{visible.length} 个方案{pending ? "，正在核对余票" : ""}{hidden ? `，${hidden} 个当日不开行已隐藏` : ""}</span>
+            <span className="count">{visible.length} 个方案{hidden ? `，${hidden} 个当日不开行已隐藏` : ""}</span>
           </div>
           {visible.length > 0 && (
             <ul className="legend" aria-label="线路颜色">
@@ -332,7 +369,7 @@ export default function App() {
               {visible.some((r) => r.legs.some((l, k) => k > 0 && r.legs[k - 1].to !== l.from)) && <li><span className="swatch walk-swatch" aria-hidden="true" />出站换乘</li>}
             </ul>
           )}
-          {visible.length === 0 && !pending && <p className="empty">没有找到方案。在换乘设置里延长最长等候，或勾选同城其他车站，再看一次。</p>}
+          {visible.length === 0 && <p className="empty">没有找到方案。在换乘设置里延长最长等候，或勾选同城其他车站，再看一次。</p>}
           <ol className="routes">
             {visible.map((r, i) => <RouteRow key={i} tt={tt} r={r} date={date} legs={legs} />)}
           </ol>

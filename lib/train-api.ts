@@ -12,9 +12,10 @@ interface QueryTrain {
 
 const cache = new Map<string, Promise<Map<string, Seats>>>();
 
-export function seatsFor(fromCode: string, toCode: string, date: string): Promise<Map<string, Seats>> {
+// `fresh` skips the answer cached in this page and asks 12306 again (the refresh button).
+export function seatsFor(fromCode: string, toCode: string, date: string, fresh = false): Promise<Map<string, Seats>> {
   const key = `${fromCode}|${toCode}|${date}`;
-  let p = cache.get(key);
+  let p = fresh ? undefined : cache.get(key);
   if (!p) {
     p = (async () => {
       const url = new URL("/api/query", window.location.origin);

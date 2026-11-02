@@ -125,6 +125,25 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 .opts input[type=number] { width: 76px; min-height: 44px; padding: 0 8px; border: 2px solid var(--ink); background: var(--panel); font-family: var(--num); font-size: 1.125rem; }
 .opts input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--ink); }
 
+/* ---- search status: checking (the list is held back) or committed (when 12306 answered) ---- */
+.status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-height: 56px; padding: 6px 6px 6px 16px; margin-bottom: 12px; background: var(--panel); }
+.status-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; flex: 1 1 140px; min-width: 0; }
+.status-text b { font-weight: 700; }
+.status-text span { color: var(--muted); font-size: 0.875rem; }
+.status .pip { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; border: 2px solid var(--ink); }
+.s-ok .pip { background: var(--ink); }
+.s-stale .pip { border-color: var(--muted); }
+.s-failed .pip { width: 20px; height: 20px; border-style: dashed; }
+.s-failed .pip svg { width: 14px; height: 14px; }
+.s-checking { padding-right: 16px; }
+.s-checking .status-text b { color: var(--muted); }
+/* progress: a ruled box filled with ink as legs come back; no motion */
+.meter { flex: 0 1 200px; min-width: 120px; height: 12px; border: 1px solid var(--ink); }
+.meter span { display: block; height: 100%; background: var(--ink); }
+.refresh { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 2px solid var(--ink); font-size: 0.9375rem; }
+.refresh:hover { background: var(--ink); color: var(--panel); }
+.s-failed .refresh, .s-stale .refresh { background: var(--ink); color: var(--panel); }
+
 /* ---- results ---- */
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; }
 .seg { display: flex; border: 2px solid var(--ink); }
@@ -232,6 +251,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
   .when .dur { margin: 0 0 0 auto; }
   .when .verdict { margin: 0; order: 9; }
   .when .kind { flex-basis: 100%; display: none; }
+  .meter { flex-basis: 100%; }
 
   .diagram { flex-direction: column; padding: 8px 16px 12px; }
   .diagram > li { flex-direction: row; align-items: stretch; }
