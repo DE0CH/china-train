@@ -173,22 +173,25 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 
 .stop { flex: 0 0 auto; }
 .stop-first { align-items: flex-start; text-align: left; }
-.stop-mid { align-items: center; text-align: center; }
+.stop-mid { align-items: flex-start; text-align: left; }
 .stop-last { align-items: flex-end; text-align: right; }
 .stop .track { width: 100%; }
 .stop-first .track { justify-content: flex-start; }
-.stop-mid .track { justify-content: center; }
+.stop-mid .track { justify-content: flex-start; }
 .stop-last .track { justify-content: flex-end; }
 /* the line runs through the stop: arriving half and leaving half */
 .stop .track::before, .stop .track::after { content: ""; position: absolute; top: calc(50% - var(--line-w) / 2); height: 0; }
 .stop .track::before { left: 0; right: 50%; border-top: var(--in-w, var(--line-w)) var(--in-style, solid) var(--in, transparent); }
 .stop .track::after { left: 50%; right: 0; border-top: var(--out-w, var(--line-w)) var(--out-style, solid) var(--out, transparent); }
 .stop-first .track::after { left: 9px; }
+.stop-mid .track::after { left: 11px; }
+.stop-mid .track::before { right: calc(100% - 11px); }   /* the (22px) node sits at the left, as at the first stop */
 .stop-last .track::before { right: 9px; }
 .stop-text { display: flex; flex-direction: column; padding: 4px 6px 0; white-space: nowrap; }
 .stop-first .stop-text { padding-left: 0; }
 .stop-last .stop-text { padding-right: 0; }
 .stop-name { font-weight: 700; font-size: 1rem; line-height: 1.35; }
+.stop-times { display: flex; column-gap: 10px; align-items: baseline; }   /* 到 and 开 on one line */
 .stop-time { font-size: 0.875rem; color: var(--muted); }
 .stop-time b { font-family: var(--num); font-size: 1.125rem; font-weight: 600; color: var(--ink); margin-right: 3px; }
 .stop-note { font-size: 0.8125rem; color: var(--muted); }
@@ -269,6 +272,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
   .stop-first .track::after, .stop-last .track::before { left: calc(50% - var(--line-w) / 2); }
   .stop-text, .stop-first .stop-text, .stop-last .stop-text { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 10px; padding: 8px 0 8px 12px; white-space: normal; }
   .stop-note, .stop-gate { flex-basis: 100%; }
+  .stop-times { display: contents; }
 
   .diagram > .leg, .diagram > .walk { flex-basis: auto; min-width: 0; min-height: 56px; }
   .leg .bar, .walk .bar { width: 0; height: 100%; border-top: 0; border-left: var(--line-w) solid var(--line); }

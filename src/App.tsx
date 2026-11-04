@@ -7,7 +7,10 @@ const WEEK = "日一二三四五六";
 const PRESETS: Array<[string, string]> = [["香港西九龙", "深圳坪山"], ["深圳坪山", "香港西九龙"]];
 const short = (name: string) => name.replace(/^(香港|深圳)(?=..)/, "");
 const STALE_MIN = 10; // seats older than this are called out, with the refresh button
-const pinyinLabel = (p: string) => p.charAt(0).toUpperCase() + p.slice(1);
+// a station's Latin name: its pinyin as China Railway's signs write it (Shenzhenbei); 12306's pinyin field for 香港西九龙
+// is an abbreviation (hkwestkowloon), so it gets its English name
+const LATIN_NAME: Record<string, string> = { 香港西九龙: "Hong Kong West Kowloon" };
+const pinyinLabel = (s: { name: string; pinyin: string }) => LATIN_NAME[s.name] ?? s.pinyin.charAt(0).toUpperCase() + s.pinyin.slice(1);
 
 function readPrefs<T>(key: string, fallback: T): T {
   try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : fallback; } catch { return fallback; }
@@ -79,14 +82,14 @@ function StationPicker({ tt, label, value, onChange, recent, align }: {
         onFocus={(e) => { setOpen(true); e.target.select(); }} onChange={(e) => { setText(e.target.value); setOpen(true); }} onKeyDown={key}
         autoComplete="off" spellCheck={false} role="combobox" aria-expanded={open} aria-controls={`${id}-list`}
       />
-      <span className="pinyin">{station && !open ? pinyinLabel(station.pinyin) : " "}</span>
+      <span className="pinyin">{station && !open ? pinyinLabel(station) : " "}</span>
       {open && tt && hits.length > 0 && (
         <ul className="suggest" id={`${id}-list`} role="listbox">
           {!text.trim() || text === shown ? <li className="suggest-head" aria-hidden="true">最近使用</li> : null}
           {hits.map((i, k) => (
             <li key={i} role="option" aria-selected={k === hi} className={k === hi ? "on" : ""} onMouseDown={(e) => { e.preventDefault(); pick(i); }} onMouseEnter={() => setHi(k)}>
               <span className="s-name">{tt.stations[i].name}</span>
-              <span className="s-meta">{tt.stations[i].city !== tt.stations[i].name ? `${tt.stations[i].city}　` : ""}{pinyinLabel(tt.stations[i].pinyin)}</span>
+              <span className="s-meta">{tt.stations[i].city !== tt.stations[i].name ? `${tt.stations[i].city}　` : ""}{pinyinLabel(tt.stations[i])}</span>
             </li>
           ))}
         </ul>
@@ -133,7 +136,7 @@ function Stop({ name, times, note, gate, pos, inLine, outLine, xchg }: {
       <span className="track" aria-hidden="true"><span className={xchg ? "node xchg" : "node"} /></span>
       <span className="stop-text">
         <span className="stop-name">{name}</span>
-        {times.map(([t, k]) => <span key={k} className="stop-time"><b>{t}</b>{k && <span>{k}</span>}</span>)}
+        <span className="stop-times">{times.map(([t, k]) => <span key={k} className="stop-time"><b>{t}</b>{k && <span>{k}</span>}</span>)}</span>
         {note && <span className="stop-note">{note}</span>}
         {gate && <span className="stop-gate">{gate.label !== null ? <>检票口 <b>{gate.label}</b></> : <b>{gate.raw}</b>}</span>}
       </span>
