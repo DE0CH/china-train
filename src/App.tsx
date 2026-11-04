@@ -257,7 +257,7 @@ export default function App() {
   const [now, setNow] = useState(() => new Date());
   const [runsOn, setRunsOn] = useState<Days>(new Map());
   const [gates, setGates] = useState<Gates>(new Map());
-  const [labels, setLabels] = useState<Labels>({});
+  const [labels, setLabels] = useState<Labels | null>(null);
   useEffect(() => { gateLabels().then(setLabels); }, []);
   const [recent, setRecent] = useState<string[]>(() => readPrefs<string[]>("recent", []));
   const run = useRef(0);
@@ -354,6 +354,15 @@ export default function App() {
     }
   }, [tt, routes, legs, date, runsOn, gates, nowMin]);
 
+  // the list appears once, complete: the seats, whether today's trains that stopped selling run (a route may vanish
+  // on that), and the 检票口 short forms; only 检票口 arrive later, and they sit on lines already drawn
+  const runsKnown = !tt || !routes || routes.every((r) => (nowMin !== null && r.arrive <= nowMin) || r.legs.every((l) => {
+    const q = legs.get(legKey(tt, l, date));
+    if (!q || q.error || q.byTrain!.has(l.trainNo) || nowMin === null || l.depart >= nowMin + SALES_CLOSE) return true;
+    return !!runsOn.get(trainKey(tt, l, date));
+  }));
+  const ready = !!checkedAt && runsKnown && labels !== null;
+
   // a route is hidden once 12306 says one of its trains does not run that day, or (today) once it has arrived
   const runs = (r: Route) => (nowMin === null || r.arrive > nowMin) && r.legs.every((l) => !legStatus(tt!, l, date, legs, runsOn, nowMin)?.missing);
   const visible = routes?.filter(runs).filter((r) => filter === "all" || (filter === "direct" ? r.transfers === 0 : r.transfers > 0)) ?? [];
@@ -417,8 +426,8 @@ export default function App() {
       </section>
 
       {routes && tt && from !== to && (
-        <div className={`status ${!checkedAt ? "s-checking" : failed ? "s-failed" : age >= STALE_MIN ? "s-stale" : "s-ok"}`} role="status">
-          {!checkedAt ? (
+        <div className={`status ${!ready ? "s-checking" : failed ? "s-failed" : age >= STALE_MIN ? "s-stale" : "s-ok"}`} role="status">
+          {!ready || !checkedAt ? (
             <>
               <span className="status-text">
                 <b>正在向 12306 核对余票</b>
@@ -441,7 +450,7 @@ export default function App() {
         </div>
       )}
 
-      {routes && tt && checkedAt && (
+      {routes && tt && ready && (
         <section aria-label="方案">
           <div className="filters">
             <div className="seg" role="tablist">
@@ -463,7 +472,7 @@ export default function App() {
           )}
           {visible.length === 0 && <p className="empty">没有找到方案。在换乘设置里延长最长等候，或勾选同城其他车站，再看一次。</p>}
           <ol className="routes">
-            {visible.map((r, i) => <RouteRow key={i} tt={tt} r={r} date={date} legs={legs} days={runsOn} gates={gates} labels={labels} now={nowMin} />)}
+            {visible.map((r, i) => <RouteRow key={i} tt={tt} r={r} date={date} legs={legs} days={runsOn} gates={gates} labels={labels ?? {}} now={nowMin} />)}
           </ol>
         </section>
       )}
