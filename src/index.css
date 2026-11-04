@@ -157,52 +157,39 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 .swatch { display: inline-block; width: 28px; height: 0; border-top: var(--line-w) solid var(--line); }
 .walk-swatch { border-top: 3px dashed var(--muted); }
 
+/* a route is a metro-style strip at every width: stations top to bottom, each train its coloured line, a transfer a
+   ring node (a walk between stations dashed); any number of legs fits, and every leg is drawn the same length */
 .routes { list-style: none; }
-.route { display: grid; grid-template-columns: 120px 1fr; background: var(--panel); margin-bottom: 8px; }
-.when { padding: 14px 16px; border-right: 1px solid var(--rule); font-family: var(--num); }
-.when .t { display: block; font-size: 1.75rem; font-weight: 700; line-height: 1.05; }
+.route { display: grid; grid-template-columns: 1fr; background: var(--panel); margin-bottom: 8px; }
+.when { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; border-bottom: 1px solid var(--rule); padding: 10px 16px; font-family: var(--num); }
+.when .t { display: block; font-size: 1.5rem; font-weight: 700; line-height: 1.05; }
 .when .t.arr { color: var(--muted); font-weight: 600; }
-.when .dur { display: block; margin-top: 8px; font-size: 0.9375rem; font-weight: 600; }
-.when .kind { display: block; font-size: 0.875rem; color: var(--muted); }
+.when .dur { display: block; margin: 0 0 0 auto; font-size: 0.9375rem; font-weight: 600; }
+.when .kind { display: none; }
 
-/* the diagram: stops and lines in one row; each item has the track band on top */
-.diagram { list-style: none; display: flex; align-items: stretch; padding: 14px 20px 16px; min-width: 0; }
-.diagram > li { position: relative; display: flex; flex-direction: column; min-width: 0; }
-.track { position: relative; display: flex; align-items: center; height: var(--track); flex: 0 0 auto; }
+.diagram { list-style: none; display: flex; flex-direction: column; padding: 8px 16px 12px; min-width: 0; }
+.diagram > li { position: relative; display: flex; flex-direction: row; align-items: stretch; min-width: 0; }
+.track { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; width: var(--track); flex: 0 0 auto; }
 
-.stop { flex: 0 0 auto; }
-.stop-first { align-items: flex-start; text-align: left; }
-.stop-mid { align-items: flex-start; text-align: left; }
-.stop-last { align-items: flex-end; text-align: right; }
-.stop .track { width: 100%; }
-.stop-first .track { justify-content: flex-start; }
-.stop-mid .track { justify-content: flex-start; }
-.stop-last .track { justify-content: flex-end; }
-/* the line runs through the stop: arriving half and leaving half */
-.stop .track::before, .stop .track::after { content: ""; position: absolute; top: calc(50% - var(--line-w) / 2); height: 0; }
-.stop .track::before { left: 0; right: 50%; border-top: var(--in-w, var(--line-w)) var(--in-style, solid) var(--in, transparent); }
-.stop .track::after { left: 50%; right: 0; border-top: var(--out-w, var(--line-w)) var(--out-style, solid) var(--out, transparent); }
-.stop-first .track::after { left: 9px; }
-.stop-mid .track::after { left: 11px; }
-.stop-mid .track::before { right: calc(100% - 11px); }   /* the (22px) node sits at the left, as at the first stop */
-.stop-last .track::before { right: 9px; }
-.stop-text { display: flex; flex-direction: column; padding: 4px 6px 0; white-space: nowrap; }
-.stop-first .stop-text { padding-left: 0; }
-.stop-last .stop-text { padding-right: 0; }
+.stop { flex: 0 0 auto; text-align: left; }
+/* the line runs through the stop: arriving half above, leaving half below */
+.stop .track::before, .stop .track::after { content: ""; position: absolute; left: calc(50% - var(--line-w) / 2); }
+.stop .track::before { top: 0; bottom: 50%; border-left: var(--in-w, var(--line-w)) var(--in-style, solid) var(--in, transparent); }
+.stop .track::after { top: 50%; bottom: 0; border-left: var(--out-w, var(--line-w)) var(--out-style, solid) var(--out, transparent); }
+.stop-text { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; padding: 8px 0 8px 12px; }
 .stop-name { font-weight: 700; font-size: 1rem; line-height: 1.35; }
-.stop-times { display: flex; column-gap: 10px; align-items: baseline; }   /* 到 and 开 on one line */
+.stop-times { display: contents; }
 .stop-time { font-size: 0.875rem; color: var(--muted); }
 .stop-time b { font-family: var(--num); font-size: 1.125rem; font-weight: 600; color: var(--ink); margin-right: 3px; }
-.stop-note { font-size: 0.8125rem; color: var(--muted); }
-.stop-gate { font-size: 0.8125rem; color: var(--muted); }
+.stop-note { flex-basis: 100%; font-size: 0.8125rem; color: var(--muted); }
+.stop-gate { flex-basis: 100%; font-size: 0.8125rem; color: var(--muted); }
 .stop-gate b { font-weight: 600; color: var(--ink); }
 
-.diagram > .leg { flex: 1 1 0; min-width: 176px; }
-.diagram > .walk { flex: 1 1 0; min-width: 132px; }
-.leg .bar, .walk .bar { display: block; width: 100%; height: 0; border-top: var(--line-w) solid var(--line); }
-.walk .bar { border-top: 3px dashed var(--muted); }
-.walk-text { padding: 6px 8px 0; font-size: 0.8125rem; color: var(--muted); text-align: center; }
-.leg-info { display: flex; flex-direction: column; gap: 6px; padding: 6px 10px 0; }
+.diagram > .leg, .diagram > .walk { flex: 1 1 auto; min-height: 56px; }
+.leg .bar, .walk .bar { display: block; width: 0; height: 100%; border-left: var(--line-w) solid var(--line); }
+.walk .bar { border-left: 3px dashed var(--muted); }
+.walk-text { padding: 8px 0 8px 12px; font-size: 0.8125rem; color: var(--muted); }
+.leg-info { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 10px 12px; flex: 1 1 0; min-width: 0; container-type: inline-size; }
 .leg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .train { font-family: var(--num); font-size: 1.125rem; font-weight: 700; line-height: 1; color: var(--on-line); background: var(--line); padding: 5px 8px 4px; }
 .leg-dur { font-size: 0.8125rem; color: var(--muted); }
@@ -213,17 +200,22 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 .seats.pending { color: var(--muted); }
 .seats.bad { align-items: center; gap: 4px; font-weight: 600; }
 /* seat plates, label | count: on sale = the count cell filled with ink, so it reads at a glance
-   without spending a hue (hues are train classes) */
-.seats:not(.pending):not(.bad) { gap: 6px; }
+   without spending a hue (hues are train classes). Four fit one line at phone width; where they don't, two by two,
+   never three and an orphan */
+.seats:not(.pending):not(.bad) { gap: 4px; }
 .seat { display: inline-flex; white-space: nowrap; border: 1px solid var(--rule); line-height: 1.6; }
-.seat > span { padding: 0 6px; color: var(--muted); }
-.seat b { font-family: var(--num); font-size: 1rem; font-weight: 700; padding: 0 7px; min-width: 28px; text-align: center; }
+.seat > span { padding: 0 4px; color: var(--muted); }
+.seat b { font-family: var(--num); font-size: 1rem; font-weight: 700; padding: 0 5px; min-width: 24px; text-align: center; }
 .seat.ok { border-color: var(--ink); }
 .seat.ok > span { color: var(--ink); }
 .seat.ok b { background: var(--ink); color: var(--panel); }
 .seat.none b { font-weight: 500; color: var(--muted); }
+@container (max-width: 268px) {
+  .seats:has(> .seat:nth-child(4)):not(:has(> .seat:nth-child(5))) { display: grid; grid-template-columns: repeat(2, max-content); }
+}
 
-.verdict { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 0.9375rem; font-weight: 700; }
+.verdict { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9375rem; font-weight: 700; }
+.when .verdict { margin: 0; order: 9; }
 .verdict .pip { width: 12px; height: 12px; border: 2px solid var(--ink); }
 .v-ok .pip { background: var(--ink); }
 .v-none, .v-pending, .v-gone { color: var(--muted); font-weight: 500; }
@@ -231,7 +223,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 .v-error { color: var(--ink); }
 .v-error .pip { border-style: dashed; }
 
-/* ---- phone: the line turns vertical ---- */
+/* ---- phone: the board stacks ---- */
 @media (max-width: 900px) {
   main { padding-top: 20px; }
 
@@ -251,35 +243,15 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
   .swap { margin-left: 0; }
   .swap-label { display: inline; font-size: 0.9375rem; color: var(--muted); }
 
-  .route { grid-template-columns: 1fr; }
-  .when { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; border-right: 0; border-bottom: 1px solid var(--rule); padding: 10px 16px; }
-  .when .t { font-size: 1.5rem; }
-  .when .dur { margin: 0 0 0 auto; }
-  .when .verdict { margin: 0; order: 9; }
-  .when .kind { flex-basis: 100%; display: none; }
   .meter { flex-basis: 100%; }
-
-  .diagram { flex-direction: column; padding: 8px 16px 12px; }
-  .diagram > li { flex-direction: row; align-items: stretch; }
-  .track { width: var(--track); height: auto; justify-content: center; flex-direction: column; }
-  .stop { text-align: left; }
-  .stop-first, .stop-mid, .stop-last { align-items: stretch; text-align: left; }
-  .stop .track { width: var(--track); }
-  .stop .track::before, .stop .track::after { left: calc(50% - var(--line-w) / 2); right: auto; height: auto; border-top: 0; }
-  .stop .track::before { top: 0; bottom: 50%; border-left: var(--in-w, var(--line-w)) var(--in-style, solid) var(--in, transparent); }
-  .stop .track::after { top: 50%; bottom: 0; border-left: var(--out-w, var(--line-w)) var(--out-style, solid) var(--out, transparent); }
-  .stop-first .track::after, .stop-last .track::before { left: calc(50% - var(--line-w) / 2); }
-  .stop-text, .stop-first .stop-text, .stop-last .stop-text { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 10px; padding: 8px 0 8px 12px; white-space: normal; }
-  .stop-note, .stop-gate { flex-basis: 100%; }
-  .stop-times { display: contents; }
-
-  .diagram > .leg, .diagram > .walk { flex-basis: auto; min-width: 0; min-height: 56px; }
-  .leg .bar, .walk .bar { width: 0; height: 100%; border-top: 0; border-left: var(--line-w) solid var(--line); }
-  .walk .bar { border-left: 3px dashed var(--muted); }
-  .leg-info { padding: 4px 0 10px 12px; }
-  .walk-text { padding: 8px 0 8px 12px; text-align: left; }
 
   .tools { display: grid; grid-template-columns: 1fr 1fr auto; }
   .preset { padding: 0 10px; justify-content: center; }
   .preset.settings { margin-left: 0; }
+}
+
+/* ---- wide: the route strips side by side ---- */
+@media (min-width: 901px) {
+  .routes { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 8px; align-items: start; }
+  .route { margin-bottom: 0; }
 }

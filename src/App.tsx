@@ -199,7 +199,7 @@ function RouteRow({ tt, r, date, legs, days, gates, labels, now }: {
       } else {
         parts.push(<Stop key={`a${k}`} pos="mid" xchg name={st(p.l.to)} times={[[clock(p.l.arrive), "到"]]} inLine={p.cls} outLine="W" />);
         parts.push(
-          <li key={`w${k}`} className="walk" style={{ flexGrow: l.depart - p.l.arrive }}>
+          <li key={`w${k}`} className="walk">
             <span className="track" aria-hidden="true"><span className="bar" /></span>
             <span className="walk-text">{st(p.l.to)}出站，到{st(l.from)}换乘，等候{wait}</span>
           </li>
@@ -208,7 +208,7 @@ function RouteRow({ tt, r, date, legs, days, gates, labels, now }: {
       }
     }
     parts.push(
-      <li key={`l${k}`} className={`leg line-${cls}`} style={{ flexGrow: l.arrive - l.depart }}>
+      <li key={`l${k}`} className={`leg line-${cls}`}>
         <span className="track" aria-hidden="true"><span className="bar" /></span>
         <span className="leg-info">
           <span className="leg-head"><span className="train">{code}</span>{terminus && <span className="leg-to">终到站<b>{terminus}</b></span>}<span className="leg-dur">{CLASS_NAME[cls]}，{span(l.arrive - l.depart)}</span></span>
