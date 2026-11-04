@@ -6,7 +6,8 @@
 //   -> { trains: [{ trainno, train_no, from, to, departuretime, arrivaltime, duration, origin, terminus,
 //                   start, canBuy, numsw, numyd, numed, numwz }], path }
 //   GET /api/gates?train=G6517&start=20261104
-//   -> { gates: { IOQ: "10A、11A,10B、11B", … } }   检票口 by station telecode; only stations 12306 has one for
+//   -> { runs: true, gates: { IOQ: "10A、11A,10B、11B", … } }   whether the train runs that day (12306 lists its
+//      stops), and 检票口 by station telecode, only for stations 12306 has one for
 //
 // 12306 has no public API; this calls the JSON endpoint its own search page uses
 // (kyfw.12306.cn/otn/leftTicket/query<X>). Requirements learned the hard way:
@@ -146,7 +147,7 @@ async function handleGates(url: URL): Promise<Response> {
       const w = String(s.wicket ?? "").trim();
       if (s.stationTelecode && w && !/^-+$/.test(w)) gates[s.stationTelecode] = w;
     }
-    return json({ gates });
+    return json({ runs: stops.length > 0, gates });
   } catch (e: any) {
     return json({ error: `检票口查询失败（${e.message}）` }, 502);
   }

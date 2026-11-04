@@ -35,13 +35,14 @@ export function seatsFor(fromCode: string, toCode: string, date: string, fresh =
   return p;
 }
 
-// 检票口 by station telecode for one train (its code and origin date YYYYMMDD), a few queries at a time. Only a
-// nice-to-have: a failure or a train 12306 has none for yet gives an empty map, and the page shows nothing.
-// `wanted` is asked when the query's turn comes: false (the page moved to another date) skips it and gives null.
-const gateCache = new Map<string, Promise<Map<string, string> | null>>();
+// One train's run on one day (its code and origin date YYYYMMDD), from 12306's list of its stops: whether it runs
+// (`runs` null when 12306 could not be asked) and 检票口 by station telecode. A few queries at a time; `wanted` is
+// asked when a query's turn comes: false (the page moved to another date) skips it and gives null.
+export interface TrainDay { runs: boolean | null; gates: Map<string, string> }
+const gateCache = new Map<string, Promise<TrainDay | null>>();
 let gateSlots = 3;
 const gateQueue: Array<() => void> = [];
-export function gatesFor(code: string, start: string, wanted: () => boolean = () => true): Promise<Map<string, string> | null> {
+export function trainDay(code: string, start: string, wanted: () => boolean = () => true): Promise<TrainDay | null> {
   const key = `${code}|${start}`;
   let p = gateCache.get(key);
   if (!p) {
@@ -52,9 +53,11 @@ export function gatesFor(code: string, start: string, wanted: () => boolean = ()
         const url = new URL("/api/gates", window.location.origin);
         url.searchParams.set("train", code);
         url.searchParams.set("start", start);
-        const data: { gates?: Record<string, string> } = await (await fetch(url)).json();
-        return new Map(Object.entries(data.gates || {}));
-      } catch { gateCache.delete(key); return new Map<string, string>(); }
+        const res = await fetch(url);
+        const data: { runs?: boolean; gates?: Record<string, string> } = await res.json();
+        if (!res.ok || typeof data.runs !== "boolean") throw new Error();
+        return { runs: data.runs, gates: new Map(Object.entries(data.gates || {})) };
+      } catch { gateCache.delete(key); return { runs: null, gates: new Map<string, string>() }; }
       finally { const next = gateQueue.shift(); if (next) next(); else gateSlots++; }
     })();
     gateCache.set(key, p);

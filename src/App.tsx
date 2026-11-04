@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { loadTimetable, plan, searchStations, clock, span, DEFAULT_OPTIONS, type Timetable, type Route, type Leg, type PlanOptions } from "@/lib/planner";
-import { seatsFor, gatesFor, gateLabel, addDays, type Seats } from "@/lib/train-api";
+import { seatsFor, trainDay, gateLabel, addDays, type Seats, type TrainDay } from "@/lib/train-api";
 
 const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const WEEK = "日一二三四五六";
@@ -96,7 +96,10 @@ function StationPicker({ tt, label, value, onChange, recent, align }: {
 }
 
 // ---- seats ------------------------------------------------------------------------------------
-type LegState = { seats?: Seats; missing?: boolean; error?: string };
+// a train missing from 12306's seat answer for today may only have stopped selling (it left, or leaves within the
+// hour): its list of stops says whether it runs, and it shows as 已发车 or 停止售票
+type LegState = { seats?: Seats; missing?: boolean; error?: string; departed?: boolean; closed?: boolean };
+const SALES_CLOSE = 60; // minutes before departure within which a missing train is checked, not dropped
 type LegQuery = { byTrain: Map<string, Seats>; error?: undefined } | { error: string; byTrain?: undefined };
 const legKey = (tt: Timetable, l: Leg, date: string) => `${tt.stations[l.from].code}|${tt.stations[l.to].code}|${addDays(date, Math.floor(l.depart / 1440))}`;
 
@@ -104,6 +107,8 @@ function SeatList({ s }: { s?: LegState }) {
   if (!s) return <span className="seats pending">正在查询余票</span>;
   if (s.error) return <span className="seats bad"><Icon d={CROSS} size={16} />余票查询失败</span>;
   if (s.missing) return <span className="seats bad"><Icon d={CROSS} size={16} />当日不开行</span>;
+  if (s.departed) return <span className="seats pending">已发车</span>;
+  if (s.closed) return <span className="seats pending">停止售票</span>;
   const state = (v: string) => (v === "有" || /^\d+$/.test(v) ? "ok" : "none");
   const items: Array<[string, string]> = [["商务", s.seats!.sw], ["一等", s.seats!.yd], ["二等", s.seats!.ed], ["无座", s.seats!.wz]];
   return (
@@ -136,22 +141,46 @@ function Stop({ name, times, note, gate, pos, inLine, outLine, xchg }: {
   );
 }
 
-// 检票口 of a leg's boarding station, when 12306 has one for its train
-type Gates = Map<string, Map<string, string>>;
-const gateKey = (s?: Seats) => (s && s.start ? `${s.code}|${s.start}` : "");
+// one train's run on a day ("code|YYYYMMDD" of its origin date): undefined until asked, null while asking
+type Days = Map<string, TrainDay | null>;
+const ymd = (iso: string) => iso.replace(/-/g, "");
+// the day a leg's train left its origin: from 12306's seats when there, else the timetable (minutes since that day)
+function trainKey(tt: Timetable, l: Leg, date: string, s?: Seats): string {
+  if (s?.start) return `${s.code}|${s.start}`;
+  const t = tt.trains.find((x) => x.no === l.trainNo);
+  let dep = 0;
+  if (t) for (let p = 0; p < t.stops.length / 3; p++) if (t.stops[p * 3] === l.from) { dep = t.stops[p * 3 + 2]; break; }
+  return `${l.train}|${ymd(addDays(date, Math.floor(l.depart / 1440) - Math.floor(dep / 1440)))}`;
+}
 
-function RouteRow({ tt, r, date, legs, gates }: { tt: Timetable; r: Route; date: string; legs: Map<string, LegQuery>; gates: Gates }) {
+// what a leg shows: seats, 当日不开行, or for today's train that stopped selling, 已发车 / 停止售票 once its run is known
+// (`now`: minutes since the travel date's midnight, null on other days)
+function legStatus(tt: Timetable, l: Leg, date: string, legs: Map<string, LegQuery>, days: Days, now: number | null): LegState | undefined {
+  const q = legs.get(legKey(tt, l, date));
+  if (!q) return undefined;
+  if (q.error) return { error: q.error };
+  const s = q.byTrain!.get(l.trainNo);
+  if (s) return { seats: s };
+  if (now === null || l.depart >= now + SALES_CLOSE) return { missing: true };
+  const d = days.get(trainKey(tt, l, date));
+  if (!d) return undefined; // still asking
+  if (d.runs === false) return { missing: true };
+  return l.depart <= now ? { departed: true } : { closed: true };
+}
+
+function RouteRow({ tt, r, date, legs, days, now }: { tt: Timetable; r: Route; date: string; legs: Map<string, LegQuery>; days: Days; now: number | null }) {
   const st = (i: number) => tt.stations[i].name;
   const info = r.legs.map((l) => {
-    const q = legs.get(legKey(tt, l, date));
-    const ls: LegState | undefined = !q ? undefined : q.error ? { error: q.error }
-      : q.byTrain!.has(l.trainNo) ? { seats: q.byTrain!.get(l.trainNo) } : { missing: true };
+    const ls = legStatus(tt, l, date, legs, days, now);
     const code = ls?.seats?.code || l.train;
-    const gate = gateLabel(gates.get(gateKey(ls?.seats))?.get(tt.stations[l.from].code));
-    return { l, ls, code, cls: trainClass(code), gate };
+    // 终到站 from 12306's seats, else the train's last stop in the timetable
+    const t = ls?.departed || ls?.closed ? tt.trains.find((x) => x.no === l.trainNo) : undefined;
+    const terminus = ls?.seats?.terminus || (t ? tt.stations[t.stops[t.stops.length - 3]].name : "");
+    const gate = ls && !ls.error && !ls.missing ? gateLabel(days.get(trainKey(tt, l, date, ls.seats))?.gates.get(tt.stations[l.from].code)) : null;
+    return { l, ls, code, cls: trainClass(code), gate, terminus };
   });
   const parts: JSX.Element[] = [];
-  info.forEach(({ l, ls, code, cls, gate }, k) => {
+  info.forEach(({ l, ls, code, cls, gate, terminus }, k) => {
     if (k === 0) parts.push(<Stop key="s0" pos="first" name={st(l.from)} times={[[clock(l.depart), "开"]]} gate={gate} outLine={cls} />);
     else {
       const p = info[k - 1], wait = span(l.depart - p.l.arrive);
@@ -172,17 +201,17 @@ function RouteRow({ tt, r, date, legs, gates }: { tt: Timetable; r: Route; date:
       <li key={`l${k}`} className={`leg line-${cls}`} style={{ flexGrow: l.arrive - l.depart }}>
         <span className="track" aria-hidden="true"><span className="bar" /></span>
         <span className="leg-info">
-          <span className="leg-head"><span className="train">{code}</span>{ls?.seats?.terminus && <span className="leg-to">终到站<b>{ls.seats.terminus}</b></span>}<span className="leg-dur">{CLASS_NAME[cls]}，{span(l.arrive - l.depart)}</span></span>
+          <span className="leg-head"><span className="train">{code}</span>{terminus && <span className="leg-to">终到站<b>{terminus}</b></span>}<span className="leg-dur">{CLASS_NAME[cls]}，{span(l.arrive - l.depart)}</span></span>
           <SeatList s={ls} />
         </span>
       </li>
     );
     if (k === info.length - 1) parts.push(<Stop key="end" pos="last" name={st(l.to)} times={[[clock(l.arrive), "到"]]} inLine={cls} />);
   });
-  // one verdict for the whole route: every leg needs at least one class on sale
-  const avail = (x?: Seats) => !!x && x.canBuy && [x.sw, x.yd, x.ed, x.wz].some((v) => v === "有" || /^\d+$/.test(v));
+  // one verdict for the whole route: every leg still to come needs at least one class on sale (one under way counts)
+  const avail = (x: LegState) => !!x.departed || (!!x.seats && x.seats.canBuy && [x.seats.sw, x.seats.yd, x.seats.ed, x.seats.wz].some((v) => v === "有" || /^\d+$/.test(v)));
   const verdict = info.some((i) => !i.ls) ? "pending" : info.some((i) => i.ls!.error) ? "error"
-    : info.every((i) => avail(i.ls!.seats)) ? "ok" : "none";
+    : info.every((i) => i.ls!.departed) ? "gone" : info.every((i) => avail(i.ls!)) ? "ok" : "none";
   return (
     <li className="route">
       <div className="when">
@@ -191,8 +220,8 @@ function RouteRow({ tt, r, date, legs, gates }: { tt: Timetable; r: Route; date:
         <span className="dur">{span(r.arrive - r.depart)}</span>
         <span className="kind">{r.transfers ? `中转${r.transfers}次` : "直达"}</span>
         <span className={`verdict v-${verdict}`}>
-          {verdict !== "pending" && <span className="pip" aria-hidden="true" />}
-          {{ pending: "查询中", error: "查询失败", ok: "有票", none: "无票" }[verdict]}
+          {verdict !== "pending" && verdict !== "gone" && <span className="pip" aria-hidden="true" />}
+          {{ pending: "查询中", error: "查询失败", ok: "有票", none: "无票", gone: "已发车" }[verdict]}
         </span>
       </div>
       <ol className="diagram" aria-label="路线">{parts}</ol>
@@ -217,7 +246,7 @@ export default function App() {
   const [total, setTotal] = useState(0);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [now, setNow] = useState(() => new Date());
-  const [gates, setGates] = useState<Gates>(new Map());
+  const [runsOn, setRunsOn] = useState<Days>(new Map());
   const [recent, setRecent] = useState<string[]>(() => readPrefs<string[]>("recent", []));
   const run = useRef(0);
 
@@ -271,26 +300,38 @@ export default function App() {
 
   const dateNow = useRef(date);
   dateNow.current = date;
-  // 检票口 for every leg boarding today or tomorrow (12306 has none further ahead), once its seats name the train
+  // minutes since the travel date's midnight when it is today (trains that left are kept while their route is still
+  // under way); null on other days
+  const nowMin = date === isoDate(now) ? now.getHours() * 60 + now.getMinutes() : null;
+
+  // each train's run, from 12306's list of its stops: for 检票口 on legs boarding today or tomorrow (12306 has none
+  // further ahead), and to tell a train of today that stopped selling from one that does not run
   useEffect(() => {
     if (!tt || !routes) return;
     const last = addDays(isoDate(new Date()), 1);
-    for (const r of routes) for (const l of r.legs) {
-      if (addDays(date, Math.floor(l.depart / 1440)) > last) continue;
-      const q = legs.get(legKey(tt, l, date)), s = q?.byTrain?.get(l.trainNo), k = gateKey(s);
-      if (!k || gates.has(k)) continue;
-      setGates((m) => (m.has(k) ? m : new Map(m).set(k, new Map())));
-      const asked = date;
-      gatesFor(s!.code, s!.start, () => dateNow.current === asked).then((g) => {
+    const ask = new Set<string>();
+    for (const r of routes) {
+      if (nowMin !== null && r.arrive <= nowMin) continue;
+      for (const l of r.legs) {
+        const q = legs.get(legKey(tt, l, date));
+        if (!q || q.error) continue;
+        const s = q.byTrain!.get(l.trainNo);
+        if (s ? addDays(date, Math.floor(l.depart / 1440)) <= last : nowMin !== null && l.depart < nowMin + SALES_CLOSE) ask.add(trainKey(tt, l, date, s));
+      }
+    }
+    for (const k of ask) {
+      if (runsOn.has(k)) continue;
+      setRunsOn((m) => (m.has(k) ? m : new Map(m).set(k, null)));
+      const asked = date, [code, start] = k.split("|");
+      trainDay(code, start, () => dateNow.current === asked).then((d) => {
         // skipped: forget it, so coming back to this date asks again
-        if (!g) setGates((m) => { const n = new Map(m); n.delete(k); return n; });
-        else if (g.size) setGates((m) => new Map(m).set(k, g));
+        setRunsOn((m) => { const n = new Map(m); if (d) n.set(k, d); else n.delete(k); return n; });
       });
     }
-  }, [tt, routes, legs, date, gates]);
+  }, [tt, routes, legs, date, runsOn, nowMin]);
 
-  // a route is hidden once 12306 says one of its trains does not run that day
-  const runs = (r: Route) => r.legs.every((l) => { const s = legs.get(legKey(tt!, l, date)); return !s || !!s.error || s.byTrain!.has(l.trainNo); });
+  // a route is hidden once 12306 says one of its trains does not run that day, or (today) once it has arrived
+  const runs = (r: Route) => (nowMin === null || r.arrive > nowMin) && r.legs.every((l) => !legStatus(tt!, l, date, legs, runsOn, nowMin)?.missing);
   const visible = routes?.filter(runs).filter((r) => filter === "all" || (filter === "direct" ? r.transfers === 0 : r.transfers > 0)) ?? [];
   const hidden = routes ? routes.filter((r) => !runs(r)).length : 0;
   const failed = [...legs.values()].filter((q) => q.error).length;
@@ -398,7 +439,7 @@ export default function App() {
           )}
           {visible.length === 0 && <p className="empty">没有找到方案。在换乘设置里延长最长等候，或勾选同城其他车站，再看一次。</p>}
           <ol className="routes">
-            {visible.map((r, i) => <RouteRow key={i} tt={tt} r={r} date={date} legs={legs} gates={gates} />)}
+            {visible.map((r, i) => <RouteRow key={i} tt={tt} r={r} date={date} legs={legs} days={runsOn} now={nowMin} />)}
           </ol>
         </section>
       )}

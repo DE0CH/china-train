@@ -224,7 +224,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 .verdict { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 0.9375rem; font-weight: 700; }
 .verdict .pip { width: 12px; height: 12px; border: 2px solid var(--ink); }
 .v-ok .pip { background: var(--ink); }
-.v-none, .v-pending { color: var(--muted); font-weight: 500; }
+.v-none, .v-pending, .v-gone { color: var(--muted); font-weight: 500; }
 .v-none .pip { border-color: var(--muted); }
 .v-error { color: var(--ink); }
 .v-error .pip { border-style: dashed; }
