@@ -31,6 +31,16 @@ API key, no daily quota.
   `timetable.json` are served from Cloudflare's edge without running code; only `/api/*` runs the
   Worker. Route `train.deyaochen.com/*`; no workers.dev or preview hostnames.
 
+- **检票口** — `/api/gate` asks 12306's own 检票口 query (`www.12306.cn/index/otn/index12306/queryTicketCheck`,
+  the page 信息查询 → 检票口: one train at one station on one date, known days ahead; its field is named
+  `trainPlatform` but holds the 检票口) and falls back to the stop's `wicket` in the stops 12306's WeChat
+  mini-program lists (`mobile.12306.cn/wxxcx/wechat/main/travelServiceQrcodeTrainInfo`, filled in for trains
+  running today), which also says whether a train runs (`/api/runs`). No 12306 source gives the platform (站台).
+- **检票口 short forms** — `public/gate-labels.json`: per station telecode, 12306's exact 检票口 strings → a short
+  form (`检票口10A、11A,10B、11B` → `10/11`), made in advance from crawls of both sources
+  (`scripts/gates/crawl-*.py` → `scripts/gates/labels.py`, a strict grammar; strings naming floors, halls or waiting
+  rooms are left out). The page shows a string's short form only on an exact match, else 12306's own words.
+
 ## Deploy
 
 `.github/workflows/deploy.yml`: every push to `main` builds and runs `wrangler deploy`; every Monday
