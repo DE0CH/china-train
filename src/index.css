@@ -187,7 +187,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 .diagram > .xfer { min-height: 36px; }
 .xfer .bar { display: block; width: 0; height: 100%; }
 .xfer.walk .bar { border-left: 3px dashed var(--muted); }
-.xfer-text { align-self: center; padding: 0 0 0 12px; font-size: 0.8125rem; color: var(--muted); }
+.xfer-text { align-self: center; padding: 0 0 0 12px; font-family: var(--num); font-size: 1.125rem; font-weight: 700; }   /* the wait: a key figure */
 .leg-info { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 10px 12px; flex: 1 1 0; min-width: 0; container-type: inline-size; }
 .leg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .train { font-family: var(--num); font-size: 1.125rem; font-weight: 700; line-height: 1; color: var(--on-line); background: var(--line); padding: 5px 8px 4px; }

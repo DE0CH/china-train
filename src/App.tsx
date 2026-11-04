@@ -123,14 +123,14 @@ const trainClass = (code: string) => (/^[GCD]/.test(code) ? code[0] : "P");
 const CLASS_NAME: Record<string, string> = { G: "高铁", D: "动车", C: "城际", P: "普速" };
 
 // ---- a route drawn as a line diagram: station nodes, one coloured line per train, interchanges ----
-// a node on the line: a station (left out where a train leaves the station another just arrived at), the time (its
-// place says which: the start of a line is a departure, the end an arrival) and, where a train leaves, its 检票口
-function Stop({ name, time, gate, inLine, outLine }: { name?: string; time: string; gate?: Gate | null; inLine?: string; outLine?: string }) {
+// a node on the line: the station, the time (its place says which: the start of a line is a departure, the end an
+// arrival) and the train's 检票口 there
+function Stop({ name, time, gate, inLine, outLine }: { name: string; time: string; gate?: Gate | null; inLine?: string; outLine?: string }) {
   return (
     <li className={`stop${inLine ? ` in-${inLine}` : ""}${outLine ? ` out-${outLine}` : ""}`}>
       <span className="track" aria-hidden="true"><span className="node" /></span>
       <span className="stop-text">
-        {name && <span className="stop-name">{name}</span>}
+        <span className="stop-name">{name}</span>
         <span className="stop-time"><b>{time}</b></span>
         {gate && <span className="stop-gate">{gate.label !== null ? <>检票口 <b>{gate.label}</b></> : <b>{gate.raw}</b>}</span>}
       </span>
@@ -206,7 +206,7 @@ function RouteRow({ tt, r, date, legs, days, gates, labels, now }: {
         </li>
       );
     }
-    parts.push(<Stop key={`s${k}`} name={p && p.l.to === l.from ? undefined : st(l.from)} time={clock(l.depart)} gate={gate} outLine={cls} />);
+    parts.push(<Stop key={`s${k}`} name={st(l.from)} time={clock(l.depart)} gate={gate} outLine={cls} />);
     parts.push(
       <li key={`l${k}`} className={`leg line-${cls}`}>
         <span className="track" aria-hidden="true"><span className="bar" /></span>
