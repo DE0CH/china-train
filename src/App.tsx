@@ -198,9 +198,8 @@ function RouteRow({ tt, r, date, legs, days, gates, labels, now }: {
   info.forEach(({ l, ls, code, cls, gate, arrGate, terminus }, k) => {
     const p = k > 0 ? info[k - 1] : null;
     if (p) {
-      const walk = p.l.to !== l.from;
       parts.push(
-        <li key={`x${k}`} className={walk ? "xfer walk" : "xfer"}>
+        <li key={`x${k}`} className="xfer">
           <span className="track" aria-hidden="true"><span className="bar" /></span>
           <span className="xfer-text">{span(l.depart - p.l.arrive)}</span>
         </li>
@@ -459,7 +458,7 @@ export default function App() {
               {(["G", "D", "C", "P"] as const).filter((c) => visible.some((r) => r.legs.some((l) => trainClass(l.train) === c))).map((c) => (
                 <li key={c}><span className={`swatch line-${c}`} aria-hidden="true" />{CLASS_NAME[c]}</li>
               ))}
-              {visible.some((r) => r.legs.some((l, k) => k > 0 && r.legs[k - 1].to !== l.from)) && <li><span className="swatch walk-swatch" aria-hidden="true" />出站换乘</li>}
+              {visible.some((r) => r.transfers > 0) && <li><span className="swatch walk-swatch" aria-hidden="true" />换乘</li>}
             </ul>
           )}
           {visible.length === 0 && <p className="empty">没有找到方案。在换乘设置里延长最长等候，或勾选同城其他车站，再看一次。</p>}

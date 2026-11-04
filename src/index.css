@@ -156,7 +156,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 .walk-swatch { border-top: 3px dashed var(--muted); }
 
 /* a route is a metro-style strip at every width: stations top to bottom, each train its coloured line, a transfer a
-   ring node (a walk between stations dashed); any number of legs fits, and every leg is drawn the same length */
+   transfer a break joined by a dashed connector; any number of legs fits, and every leg is drawn the same length */
 .routes { list-style: none; }
 .route { display: grid; grid-template-columns: 1fr; background: var(--panel); margin-bottom: 8px; }
 .when { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; border-bottom: 1px solid var(--rule); padding: 10px 16px; font-family: var(--num); }
@@ -178,15 +178,14 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 .stop-name { font-weight: 700; font-size: 1rem; line-height: 1.35; }
 .stop-time { font-size: 0.875rem; color: var(--muted); }
 .stop-time b { font-family: var(--num); font-size: 1.125rem; font-weight: 600; color: var(--ink); margin-right: 3px; }
-.stop-gate { flex-basis: 100%; font-size: 0.8125rem; color: var(--muted); }
+.stop-gate { font-size: 0.8125rem; color: var(--muted); }   /* on the station's line: arriving late, it moves nothing */
 .stop-gate b { font-weight: 600; color: var(--ink); }
 
 .diagram > .leg { flex: 1 1 auto; min-height: 56px; }
 .leg .bar { display: block; width: 0; height: 100%; border-left: var(--line-w) solid var(--line); }
-/* a transfer: the line breaks; a change of station is dashed; the wait sits in the gap */
+/* a transfer: the line breaks, joined by a dashed connector, with the wait in the gap */
 .diagram > .xfer { min-height: 36px; }
-.xfer .bar { display: block; width: 0; height: 100%; }
-.xfer.walk .bar { border-left: 3px dashed var(--muted); }
+.xfer .bar { display: block; width: 0; height: 100%; border-left: 3px dashed var(--muted); }
 .xfer-text { align-self: center; padding: 0 0 0 12px; font-family: var(--num); font-size: 1.125rem; font-weight: 700; }   /* the wait: a key figure */
 .leg-info { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 10px 12px; flex: 1 1 0; min-width: 0; container-type: inline-size; }
 .leg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
