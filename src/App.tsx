@@ -210,7 +210,7 @@ function RouteRow({ tt, r, date, legs, days, gates, labels, now }: {
       <li key={`l${k}`} className={`leg line-${cls}`}>
         <span className="track" aria-hidden="true"><span className="bar" /></span>
         <span className="leg-info">
-          <span className="leg-head"><span className="train">{code}</span>{terminus && <span className="leg-to">终到站<b>{terminus}</b></span>}<span className="leg-dur">{CLASS_NAME[cls]}，{span(l.arrive - l.depart)}</span></span>
+          <span className="leg-head"><span className="train">{code}</span>{terminus && <span className="leg-to">终到站<b>{terminus}</b></span>}</span>
           <SeatList s={ls} />
         </span>
       </li>
@@ -354,17 +354,18 @@ export default function App() {
     }
   }, [tt, routes, legs, date, runsOn, gates, nowMin]);
 
-  // the list appears once, complete: the seats, whether today's trains that stopped selling run (a route may vanish
-  // on that), and the 检票口 short forms; only 检票口 arrive later, and they sit on lines already drawn
-  const runsKnown = !tt || !routes || routes.every((r) => (nowMin !== null && r.arrive <= nowMin) || r.legs.every((l) => {
-    const q = legs.get(legKey(tt, l, date));
-    if (!q || q.error || q.byTrain!.has(l.trainNo) || nowMin === null || l.depart >= nowMin + SALES_CLOSE) return true;
-    return !!runsOn.get(trainKey(tt, l, date));
-  }));
-  const ready = !!checkedAt && runsKnown && labels !== null;
+  // the list appears once the seats are in; what comes after (检票口, whether a train that stopped selling today runs,
+  // the short forms) fills lines already drawn, so nothing moves
+  const ready = !!checkedAt;
 
-  // a route is hidden once 12306 says one of its trains does not run that day, or (today) once it has arrived
-  const runs = (r: Route) => (nowMin === null || r.arrive > nowMin) && r.legs.every((l) => !legStatus(tt!, l, date, legs, runsOn, nowMin)?.missing);
+  // a route is hidden when 12306's seat answer says one of its trains does not run that day, or (today) once it has
+  // arrived; decided when the list first appears: a later check marks a leg 当日不开行 in place instead of moving cards
+  // (the time the seats were checked, not the live clock: a card never vanishes while you read; refresh to update)
+  const cut = checkedAt && date === isoDate(checkedAt) ? checkedAt.getHours() * 60 + checkedAt.getMinutes() : null;
+  const runs = (r: Route) => (cut === null || r.arrive > cut) && r.legs.every((l) => {
+    const q = legs.get(legKey(tt!, l, date));
+    return !q || !!q.error || q.byTrain!.has(l.trainNo) || (cut !== null && l.depart < cut + SALES_CLOSE);
+  });
   const visible = routes?.filter(runs).filter((r) => filter === "all" || (filter === "direct" ? r.transfers === 0 : r.transfers > 0)) ?? [];
   const hidden = routes ? routes.filter((r) => !runs(r)).length : 0;
   const failed = [...legs.values()].filter((q) => q.error).length;

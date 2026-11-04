@@ -190,7 +190,6 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 .leg-info { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 10px 12px; flex: 1 1 0; min-width: 0; container-type: inline-size; }
 .leg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .train { font-family: var(--num); font-size: 1.125rem; font-weight: 700; line-height: 1; color: var(--on-line); background: var(--line); padding: 5px 8px 4px; }
-.leg-dur { font-size: 0.8125rem; color: var(--muted); }
 .leg-to { font-size: 0.8125rem; color: var(--muted); }
 .leg-to b { font-weight: 600; color: var(--ink); margin-left: 4px; }
 
