@@ -4,7 +4,9 @@
 //
 //   GET /api/query?from=深圳坪山&to=深圳北&date=2026-09-17
 //   -> { trains: [{ trainno, train_no, from, to, departuretime, arrivaltime, duration, origin, terminus,
-//                   canBuy, numsw, numyd, numed, numwz }], path }
+//                   start, canBuy, numsw, numyd, numed, numwz }], path }
+//   GET /api/gates?train=G6517&start=20261104
+//   -> { gates: { IOQ: "10A、11A,10B、11B", … } }   检票口 by station telecode; only stations 12306 has one for
 //
 // 12306 has no public API; this calls the JSON endpoint its own search page uses
 // (kyfw.12306.cn/otn/leftTicket/query<X>). Requirements learned the hard way:
@@ -94,6 +96,8 @@ function parseRows(rows: string[], names: Record<string, string>, fromCode: stri
       from: name(f[FIELD.fromCode]), to: name(f[FIELD.toCode]),
       departuretime: f[FIELD.depart] || "", arrivaltime: f[FIELD.arrive] || "", duration: f[FIELD.duration] || "",
       origin: name(f[FIELD.originCode]), terminus: name(f[FIELD.terminusCode]),
+      // the date the train left its origin (YYYYMMDD), which /api/gates needs
+      start: f[FIELD.startDate] || "",
       canBuy: f[FIELD.canWebBuy] === "Y",
       // 商务座 falls back to 特等座 (older sets label the top class that way)
       numsw: seat(FIELD.swz) !== "--" ? seat(FIELD.swz) : seat(FIELD.tz),
@@ -122,10 +126,37 @@ async function handleQuery(url: URL): Promise<Response> {
   return json({ error: `12306 查询失败（${errors.join(" | ")}）` }, 502);
 }
 
+// ---- 检票口: the train's stops as 12306's WeChat mini-program shows them (mobile.12306.cn, no login) ----
+// Each stop carries `wicket` (检票口), `exit` and `waitingRoom`; 12306 fills them in for trains running today
+// (a day ahead they are still "--"). No platform (站台) is given anywhere. `start` is the origin date.
+async function handleGates(url: URL): Promise<Response> {
+  const train = (url.searchParams.get("train") || "").trim().toUpperCase(), start = (url.searchParams.get("start") || "").trim();
+  if (!/^[A-Z0-9]{1,8}$/.test(train) || !/^\d{8}$/.test(start)) return json({ error: "train and start=YYYYMMDD are required" }, 400);
+  try {
+    const r = await fetch("https://mobile.12306.cn/wxxcx/wechat/main/travelServiceQrcodeTrainInfo", {
+      method: "POST",
+      headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+      body: new URLSearchParams({ trainCode: train, startDay: start, startTime: "", endDay: "", endTime: "" }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data: any = await r.json();
+    const stops: any[] = data?.data?.trainDetail?.stopTime || [];
+    const gates: Record<string, string> = {};
+    for (const s of stops) {
+      const w = String(s.wicket ?? "").trim();
+      if (s.stationTelecode && w && !/^-+$/.test(w)) gates[s.stationTelecode] = w;
+    }
+    return json({ gates });
+  } catch (e: any) {
+    return json({ error: `检票口查询失败（${e.message}）` }, 502);
+  }
+}
+
 export default {
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === "/api/query") return handleQuery(url);
+    if (url.pathname === "/api/gates") return handleGates(url);
     return json({ error: "not found" }, 404);
   },
 };

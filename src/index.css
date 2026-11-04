@@ -192,6 +192,8 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 .stop-time { font-size: 0.875rem; color: var(--muted); }
 .stop-time b { font-family: var(--num); font-size: 1.125rem; font-weight: 600; color: var(--ink); margin-right: 3px; }
 .stop-note { font-size: 0.8125rem; color: var(--muted); }
+.stop-gate { font-size: 0.8125rem; color: var(--muted); }
+.stop-gate b { font-weight: 600; color: var(--ink); }
 
 .diagram > .leg { flex: 1 1 0; min-width: 176px; }
 .diagram > .walk { flex: 1 1 0; min-width: 132px; }
@@ -202,6 +204,8 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 .leg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .train { font-family: var(--num); font-size: 1.125rem; font-weight: 700; line-height: 1; color: var(--on-line); background: var(--line); padding: 5px 8px 4px; }
 .leg-dur { font-size: 0.8125rem; color: var(--muted); }
+.leg-to { font-size: 0.8125rem; color: var(--muted); }
+.leg-to b { font-weight: 600; color: var(--ink); margin-left: 4px; }
 
 .seats { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 0.875rem; }
 .seats.pending { color: var(--muted); }
@@ -264,7 +268,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
   .stop .track::after { top: 50%; bottom: 0; border-left: var(--out-w, var(--line-w)) var(--out-style, solid) var(--out, transparent); }
   .stop-first .track::after, .stop-last .track::before { left: calc(50% - var(--line-w) / 2); }
   .stop-text, .stop-first .stop-text, .stop-last .stop-text { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 10px; padding: 8px 0 8px 12px; white-space: normal; }
-  .stop-note { flex-basis: 100%; }
+  .stop-note, .stop-gate { flex-basis: 100%; }
 
   .diagram > .leg, .diagram > .walk { flex-basis: auto; min-width: 0; min-height: 56px; }
   .leg .bar, .walk .bar { width: 0; height: 100%; border-top: 0; border-left: var(--line-w) solid var(--line); }
