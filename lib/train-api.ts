@@ -35,41 +35,68 @@ export function seatsFor(fromCode: string, toCode: string, date: string, fresh =
   return p;
 }
 
-// One train's run on one day (its code and origin date YYYYMMDD), from 12306's list of its stops: whether it runs
-// (`runs` null when 12306 could not be asked) and 检票口 by station telecode. A few queries at a time; `wanted` is
-// asked when a query's turn comes: false (the page moved to another date) skips it and gives null.
-export interface TrainDay { runs: boolean | null; gates: Map<string, string> }
-const gateCache = new Map<string, Promise<TrainDay | null>>();
-let gateSlots = 3;
-const gateQueue: Array<() => void> = [];
-export function trainDay(code: string, start: string, wanted: () => boolean = () => true): Promise<TrainDay | null> {
-  const key = `${code}|${start}`;
-  let p = gateCache.get(key);
+// A few side queries at a time (a train's run, a 检票口): each waits for a slot, and `wanted` is asked when its turn
+// comes: false (the page moved to another date) skips it.
+let slots = 3;
+const waiting: Array<() => void> = [];
+async function inTurn<T>(wanted: () => boolean, run: () => Promise<T>): Promise<T | null> {
+  if (slots > 0) slots--; else await new Promise<void>((r) => waiting.push(r));
+  try { return wanted() ? await run() : null; }
+  finally { const next = waiting.shift(); if (next) next(); else slots++; }
+}
+function cached<T>(cache: Map<string, Promise<T | null>>, key: string, make: () => Promise<T | null>): Promise<T | null> {
+  let p = cache.get(key);
   if (!p) {
-    p = (async () => {
-      if (gateSlots > 0) gateSlots--; else await new Promise<void>((r) => gateQueue.push(r));
-      if (!wanted()) { gateCache.delete(key); const next = gateQueue.shift(); if (next) next(); else gateSlots++; return null; }
-      try {
-        const url = new URL("/api/gates", window.location.origin);
-        url.searchParams.set("train", code);
-        url.searchParams.set("start", start);
-        const res = await fetch(url);
-        const data: { runs?: boolean; gates?: Record<string, string> } = await res.json();
-        if (!res.ok || typeof data.runs !== "boolean") throw new Error();
-        return { runs: data.runs, gates: new Map(Object.entries(data.gates || {})) };
-      } catch { gateCache.delete(key); return { runs: null, gates: new Map<string, string>() }; }
-      finally { const next = gateQueue.shift(); if (next) next(); else gateSlots++; }
-    })();
-    gateCache.set(key, p);
+    p = make();
+    cache.set(key, p);
+    p.then((v) => { if (v === null) cache.delete(key); }, () => cache.delete(key));
   }
   return p;
 }
 
-// 12306's 检票口 text, shorter: "16检票口,17检票口" -> "16 / 17", "检票口1,检票口3" -> "1 / 3"; null when nothing is left
-export function gateLabel(raw: string | undefined): string | null {
-  if (!raw) return null;
-  const parts = raw.split(/[,，]/).map((p) => p.trim().replace(/(进站)?检票口$/, "").replace(/^检票口/, "").trim()).filter((p) => p && !/^-+$/.test(p));
-  return parts.length ? parts.join(" / ") : null;
+// Whether a train runs on a day (its code and origin date YYYYMMDD), from 12306's list of its stops; null when
+// skipped, `runs` null when 12306 could not be asked.
+export interface TrainDay { runs: boolean | null }
+const runCache = new Map<string, Promise<TrainDay | null>>();
+export function trainDay(code: string, start: string, wanted: () => boolean = () => true): Promise<TrainDay | null> {
+  return cached(runCache, `${code}|${start}`, () => inTurn(wanted, async () => {
+    try {
+      const url = new URL("/api/runs", window.location.origin);
+      url.searchParams.set("train", code);
+      url.searchParams.set("start", start);
+      const res = await fetch(url);
+      const data: { runs?: boolean } = await res.json();
+      if (!res.ok || typeof data.runs !== "boolean") throw new Error();
+      return { runs: data.runs };
+    } catch { return { runs: null }; }
+  }));
+}
+
+// 12306's 检票口 for a train boarding at a station on a date (its own 检票口 query: one gate, known days ahead), as
+// 12306 writes it ("检票口11B"); "" when 12306 has none (or could not be asked); null when skipped.
+const gateCache = new Map<string, Promise<string | null>>();
+export function gateFor(code: string, date: string, station: string, start: string, wanted: () => boolean = () => true): Promise<string | null> {
+  return cached(gateCache, `${code}|${date}|${station}`, () => inTurn(wanted, async () => {
+    try {
+      const url = new URL("/api/gate", window.location.origin);
+      url.searchParams.set("train", code);
+      url.searchParams.set("date", date);
+      url.searchParams.set("station", station);
+      url.searchParams.set("start", start);
+      const res = await fetch(url);
+      const data: { gate?: string } = await res.json();
+      return res.ok && typeof data.gate === "string" ? data.gate : "";
+    } catch { return ""; }   // a failure shows no 检票口 (asking again at once would loop)
+  }));
+}
+
+// The short form of each station's 检票口 strings ("检票口10A、11A,10B、11B" -> "10/11"), researched in advance per
+// station from 12306's own strings (public/gate-labels.json). Exact strings only: one not in it is shown as 12306
+// writes it.
+let labels: Promise<Record<string, Record<string, string>>> | null = null;
+export function gateLabels(): Promise<Record<string, Record<string, string>>> {
+  if (!labels) labels = fetch("/gate-labels.json").then((r) => (r.ok ? r.json() : {})).catch(() => { labels = null; return {}; });
+  return labels;
 }
 
 export const addDays = (iso: string, n: number) => {
