@@ -1,0 +1,93 @@
+name: 检票口 short forms
+
+# Crawls 12306's 检票口 strings for every train (README "检票口 short forms") and rebuilds public/gate-labels.json:
+# 12306's own 检票口 query for every (train, boarding stop) of tomorrow's runs, in parallel shards, and the WeChat
+# mini-program's stops for today's runs (wicket strings of smaller stations); then `gates labels` (crawler/src/bin/
+# gates.rs). A changed table is committed to main and deployed. Every Monday after the timetable crawl, or by hand.
+on:
+  push:   # a change to the crawler or this workflow runs it
+    branches: [main]
+    paths: [".github/workflows/gates.yml", "crawler/src/bin/gates.rs"]
+  schedule:
+    - cron: "17 21 * * 0"   # Monday 05:17 Beijing time, two hours after the timetable crawl
+  workflow_dispatch:
+
+permissions:
+  contents: write   # commit the table
+  actions: write    # start the deploy (a push with this workflow's token starts no workflow)
+
+concurrency:
+  group: gates
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { kind: check, shard: 0/4 }
+          - { kind: check, shard: 1/4 }
+          - { kind: check, shard: 2/4 }
+          - { kind: check, shard: 3/4 }
+          - { kind: stops, shard: 0/1 }
+    steps:
+      - uses: actions/checkout@v4
+      - name: The timetable the deploy keeps
+        uses: actions/cache/restore@v4
+        with:
+          path: public/timetable.json
+          key: timetable-${{ github.run_id }}
+          restore-keys: timetable-
+      - run: test -s public/timetable.json || curl -sfL https://train.deyaochen.com/timetable.json -o public/timetable.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crawler
+      - run: cargo build --release --manifest-path crawler/Cargo.toml --bin gates
+      - name: Crawl (${{ matrix.kind }} ${{ matrix.shard }})
+        run: |
+          day=$([ ${{ matrix.kind }} = check ] && TZ=Asia/Shanghai date -d tomorrow +%F || TZ=Asia/Shanghai date +%Y%m%d)
+          crawler/target/release/gates ${{ matrix.kind }} public/timetable.json rows.jsonl "$day" ${{ matrix.shard }}
+          wc -l rows.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rows-${{ matrix.kind }}-${{ strategy.job-index }}
+          path: rows.jsonl
+          retention-days: 7
+
+  labels:
+    needs: crawl
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rows-*
+          path: rows
+      - name: At least the 12306 检票口 query came through
+        run: |
+          ls rows/*/rows.jsonl
+          test "$(ls -d rows/rows-check-* 2>/dev/null | wc -l)" -ge 3 || { echo "::error::too few crawl shards came through"; exit 1; }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crawler
+      - run: cargo build --release --manifest-path crawler/Cargo.toml --bin gates
+      - run: crawler/target/release/gates labels public/gate-labels.json rows/*/rows.jsonl
+      - name: Commit the table and deploy it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git diff --quiet public/gate-labels.json && { echo "table unchanged"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/gate-labels.json
+          git commit -m "检票口 short forms: weekly crawl $(TZ=Asia/Shanghai date +%F)"
+          git pull --rebase origin main
+          git push origin HEAD:main
+          gh workflow run deploy.yml --ref main

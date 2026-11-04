@@ -37,9 +37,11 @@ API key, no daily quota.
   mini-program lists (`mobile.12306.cn/wxxcx/wechat/main/travelServiceQrcodeTrainInfo`, filled in for trains
   running today), which also says whether a train runs (`/api/runs`). No 12306 source gives the platform (站台).
 - **检票口 short forms** — `public/gate-labels.json`: per station telecode, 12306's exact 检票口 strings → a short
-  form (`检票口10A、11A,10B、11B` → `10/11`), made in advance from crawls of both sources
-  (`scripts/gates/crawl-*.py` → `scripts/gates/labels.py`, a strict grammar; strings naming floors, halls or waiting
-  rooms are left out). The page shows a string's short form only on an exact match, else 12306's own words.
+  form (`检票口10A、11A,10B、11B` → `10/11`), made in advance: `.github/workflows/gates.yml` (every Monday, or on a
+  change to it) crawls both sources for every train with `crawler/src/bin/gates.rs` (`gates check` / `gates stops`,
+  in parallel shards) and rebuilds the table with `gates labels`, a strict grammar that leaves strings naming floors,
+  halls or waiting rooms alone; a changed table is committed and deployed. The page shows a string's short form
+  only on an exact match, else 12306's own words.
 
 ## Deploy
 
