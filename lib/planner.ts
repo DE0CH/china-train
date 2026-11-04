@@ -124,20 +124,69 @@ function pareto(rs: Route[]): Route[] {
 }
 
 // station search for the pickers: name, full pinyin, initials or telecode
+// Station search: exact and prefix matches on the name, initials, telecode and the Latin keys (pinyin and an English
+// name: a trailing 北/南/东/西 read as north/south/east/west, so "Shenzhen North" finds 深圳北) first; then fuzzy
+// ones: the typed characters in order with gaps (深北 → 深圳北, szhbei → shenzhenbei), then a key with a typo or two
+// (shenzen → shenzhen: 1 edit from 4 letters, 2 from 7, counted against the key's best prefix). Spaces and a final
+// "station" are ignored. Within a tier, closer matches first, then busier stations. lib/ is ported to Swift in
+// DE0CH/china-train-ios: keep the two identical.
+const DIRECTION: Record<string, [string, string]> = { 北: ["bei", "north"], 南: ["nan", "south"], 东: ["dong", "east"], 西: ["xi", "west"] };
+// 12306's own pinyin is not pinyin for these
+const EXTRA_KEYS: Record<string, string[]> = { 香港西九龙: ["xianggangxijiulong", "hongkongwestkowloon", "westkowloon", "xijiulong"] };
+
+function latinKeys(st: { name: string; pinyin: string }): string[] {
+  const keys = [st.pinyin, ...(EXTRA_KEYS[st.name] ?? [])];
+  const dir = DIRECTION[st.name.slice(-1)];
+  if (dir && st.name.length >= 3 && st.pinyin.endsWith(dir[0])) keys.push(st.pinyin.slice(0, -dir[0].length) + dir[1]);
+  return keys;
+}
+
+// q's characters found in s in order (each at the first place it can go): how many gaps they leave between them, or
+// -1 when they are not all there
+function gapsInOrder(q: string, s: string): number {
+  let j = 0, gaps = 0, last = -1;
+  for (let i = 0; i < s.length && j < q.length; i++) if (s[i] === q[j]) { if (last >= 0 && i > last + 1) gaps++; last = i; j++; }
+  return j === q.length ? gaps : -1;
+}
+// edits to turn q into some prefix of s (Levenshtein with a free tail of s)
+function prefixEdits(q: string, s: string): number {
+  let prev = Array.from({ length: s.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= q.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= s.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (q[i - 1] === s[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return Math.min(...prev);
+}
+
 export function searchStations(tt: Timetable, q: string, limit = 8): number[] {
-  const s = q.trim().toLowerCase();
+  const t = q.trim();
+  let s = t.toLowerCase().replace(/\s+/g, "");
+  if (/^[a-z]+$/.test(s) && s.length > 7) s = s.replace(/(railway)?station$/, "");
   if (!s) return [];
+  const latin = /^[a-z]+$/.test(s);
+  const typos = !latin || s.length < 4 ? 0 : s.length < 7 ? 1 : 2;
   const scored: Array<[number, number]> = [];
   tt.stations.forEach((st, i) => {
     if (!tt.byStation.has(i)) return; // no passenger trains
-    let score = -1;
-    if (st.name === q.trim()) score = 0;
-    else if (st.name.startsWith(q.trim())) score = 1;
-    else if (st.abbr === s || st.pinyin === s) score = 2;
-    else if (st.abbr.startsWith(s) || st.pinyin.startsWith(s)) score = 3;
+    const keys = latin ? latinKeys(st) : [];
+    let score = -1, near = 0;
+    if (st.name === t) score = 0;
+    else if (st.name.startsWith(t)) score = 1;
+    else if (st.abbr === s || keys.includes(s)) score = 2;
+    else if (st.abbr.startsWith(s) || keys.some((k) => k.startsWith(s))) score = 3;
     else if (st.code.toLowerCase() === s) score = 3;
-    else if (st.name.includes(q.trim()) || st.city.startsWith(q.trim())) score = 4;
-    if (score >= 0) scored.push([score * 100000 - (tt.byStation.get(i)?.length ?? 0), i]);
+    else if (st.name.includes(t) || st.city.startsWith(t)) score = 4;
+    else if (s.length >= 2) {
+      // in order with gaps: Chinese against the name, Latin against each key (its first letter typed first)
+      const gaps = (latin ? keys.filter((k) => k[0] === s[0]) : [st.name]).map((k) => gapsInOrder(s, k)).filter((g) => g >= 0);
+      if (gaps.length) { score = 5; near = Math.min(...gaps); }
+      else if (typos) {
+        const d = Math.min(...keys.map((k) => prefixEdits(s, k)));
+        if (d <= typos) { score = 6; near = d; }
+      }
+    }
+    if (score >= 0) scored.push([score * 100000 + Math.min(near, 9) * 10000 - Math.min(tt.byStation.get(i)?.length ?? 0, 9999), i]);
   });
   return scored.sort((a, b) => a[0] - b[0]).slice(0, limit).map(([, i]) => i);
 }

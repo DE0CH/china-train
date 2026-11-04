@@ -1,7 +1,7 @@
 # china-train
 
 Train route planner for mainland China and Hong Kong at **https://train.deyaochen.com**: pick any two
-stations (autocomplete on name, pinyin or initials) and a date; it lists every direct train and every
+stations (fuzzy search on name, pinyin, English name or initials) and a date; it lists every direct train and every
 one-transfer route worth taking, with live seats from **12306** (China Railway's official site). No
 API key, no daily quota.
 

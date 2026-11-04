@@ -75,7 +75,7 @@ function StationPicker({ tt, label, value, onChange, recent, align }: {
       <span className="sign-track" aria-hidden="true"><span className="node" /></span>
       <label htmlFor={id}>{label}</label>
       <input
-        id={id} value={text} placeholder={tt ? "站名、拼音或首字母" : "正在载入车站"} disabled={!tt}
+        id={id} value={text} placeholder={tt ? "站名、拼音、英文或首字母" : "正在载入车站"} disabled={!tt}
         onFocus={(e) => { setOpen(true); e.target.select(); }} onChange={(e) => { setText(e.target.value); setOpen(true); }} onKeyDown={key}
         autoComplete="off" spellCheck={false} role="combobox" aria-expanded={open} aria-controls={`${id}-list`}
       />
