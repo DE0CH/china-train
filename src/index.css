@@ -57,8 +57,6 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
   position: relative; z-index: 1; display: block; width: 18px; height: 18px;
   background: var(--panel); border: 4px solid var(--ink);
 }
-.node.xchg { width: 22px; height: 22px; }
-.node.xchg::after { content: ""; position: absolute; inset: 3px; background: var(--ink); }
 
 /* ---- query board: from and to as the two ends of a line ---- */
 .board { background: var(--panel); margin-bottom: 28px; }
@@ -178,17 +176,18 @@ main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 72px; }
 .stop .track::after { top: 50%; bottom: 0; border-left: var(--out-w, var(--line-w)) var(--out-style, solid) var(--out, transparent); }
 .stop-text { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; padding: 8px 0 8px 12px; }
 .stop-name { font-weight: 700; font-size: 1rem; line-height: 1.35; }
-.stop-times { display: contents; }
 .stop-time { font-size: 0.875rem; color: var(--muted); }
 .stop-time b { font-family: var(--num); font-size: 1.125rem; font-weight: 600; color: var(--ink); margin-right: 3px; }
-.stop-note { flex-basis: 100%; font-size: 0.8125rem; color: var(--muted); }
 .stop-gate { flex-basis: 100%; font-size: 0.8125rem; color: var(--muted); }
 .stop-gate b { font-weight: 600; color: var(--ink); }
 
-.diagram > .leg, .diagram > .walk { flex: 1 1 auto; min-height: 56px; }
-.leg .bar, .walk .bar { display: block; width: 0; height: 100%; border-left: var(--line-w) solid var(--line); }
-.walk .bar { border-left: 3px dashed var(--muted); }
-.walk-text { padding: 8px 0 8px 12px; font-size: 0.8125rem; color: var(--muted); }
+.diagram > .leg { flex: 1 1 auto; min-height: 56px; }
+.leg .bar { display: block; width: 0; height: 100%; border-left: var(--line-w) solid var(--line); }
+/* a transfer: the line breaks; a change of station is dashed; the wait sits in the gap */
+.diagram > .xfer { min-height: 36px; }
+.xfer .bar { display: block; width: 0; height: 100%; }
+.xfer.walk .bar { border-left: 3px dashed var(--muted); }
+.xfer-text { align-self: center; padding: 0 0 0 12px; font-size: 0.8125rem; color: var(--muted); }
 .leg-info { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 10px 12px; flex: 1 1 0; min-width: 0; container-type: inline-size; }
 .leg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .train { font-family: var(--num); font-size: 1.125rem; font-weight: 700; line-height: 1; color: var(--on-line); background: var(--line); padding: 5px 8px 4px; }

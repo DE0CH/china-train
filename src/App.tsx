@@ -123,16 +123,15 @@ const trainClass = (code: string) => (/^[GCD]/.test(code) ? code[0] : "P");
 const CLASS_NAME: Record<string, string> = { G: "高铁", D: "动车", C: "城际", P: "普速" };
 
 // ---- a route drawn as a line diagram: station nodes, one coloured line per train, interchanges ----
-function Stop({ name, times, note, gate, pos, inLine, outLine, xchg }: {
-  name: string; times: Array<[string, string]>; note?: string; gate?: Gate | null; pos: "first" | "mid" | "last"; inLine?: string; outLine?: string; xchg?: boolean;
-}) {
+// a node on the line: a station (left out where a train leaves the station another just arrived at), the time (its
+// place says which: the start of a line is a departure, the end an arrival) and, where a train leaves, its 检票口
+function Stop({ name, time, gate, inLine, outLine }: { name?: string; time: string; gate?: Gate | null; inLine?: string; outLine?: string }) {
   return (
-    <li className={`stop stop-${pos}${inLine ? ` in-${inLine}` : ""}${outLine ? ` out-${outLine}` : ""}`}>
-      <span className="track" aria-hidden="true"><span className={xchg ? "node xchg" : "node"} /></span>
+    <li className={`stop${inLine ? ` in-${inLine}` : ""}${outLine ? ` out-${outLine}` : ""}`}>
+      <span className="track" aria-hidden="true"><span className="node" /></span>
       <span className="stop-text">
-        <span className="stop-name">{name}</span>
-        <span className="stop-times">{times.map(([t, k]) => <span key={k} className="stop-time"><b>{t}</b>{k && <span>{k}</span>}</span>)}</span>
-        {note && <span className="stop-note">{note}</span>}
+        {name && <span className="stop-name">{name}</span>}
+        <span className="stop-time"><b>{time}</b></span>
         {gate && <span className="stop-gate">{gate.label !== null ? <>检票口 <b>{gate.label}</b></> : <b>{gate.raw}</b>}</span>}
       </span>
     </li>
@@ -145,7 +144,9 @@ type Days = Map<string, TrainDay | null>;
 type Gates = Map<string, string | null>;
 type Labels = Record<string, Record<string, string>>;
 type Gate = { raw: string; label: string | null };
-const gateKey = (code: string, l: Leg, date: string, tt: Timetable) => `${code}|${addDays(date, Math.floor(l.depart / 1440))}|${tt.stations[l.from].code}`;
+// a leg's train at a station of it at a time (minutes from the travel date's midnight): its 检票口 there. At the end of
+// a leg it is the arriving train's own 检票口 (where the train continues), which tells you its platform
+const gateKey = (code: string, at: number, station: number, date: string, tt: Timetable) => `${code}|${addDays(date, Math.floor(at / 1440))}|${tt.stations[station].code}`;
 // the short form only for a string researched for that station; otherwise 12306's own words
 function gateOf(raw: string | null | undefined, station: string, labels: Labels): Gate | null {
   if (!raw) return null;
@@ -186,27 +187,26 @@ function RouteRow({ tt, r, date, legs, days, gates, labels, now }: {
     // 终到站 from 12306's seats, else the train's last stop in the timetable
     const t = ls?.departed || ls?.closed ? tt.trains.find((x) => x.no === l.trainNo) : undefined;
     const terminus = ls?.seats?.terminus || (t ? tt.stations[t.stops[t.stops.length - 3]].name : "");
-    const gate = ls && !ls.error && !ls.missing ? gateOf(gates.get(gateKey(code, l, date, tt)), tt.stations[l.from].code, labels) : null;
-    return { l, ls, code, cls: trainClass(code), gate, terminus };
+    const ok = ls && !ls.error && !ls.missing;
+    const gate = ok ? gateOf(gates.get(gateKey(code, l.depart, l.from, date, tt)), tt.stations[l.from].code, labels) : null;
+    const arrGate = ok ? gateOf(gates.get(gateKey(code, l.arrive, l.to, date, tt)), tt.stations[l.to].code, labels) : null;
+    return { l, ls, code, cls: trainClass(code), gate, arrGate, terminus };
   });
+  // each train its own line, node to node; a transfer is the break between two lines (dashed where you change
+  // stations), with the wait in it
   const parts: JSX.Element[] = [];
-  info.forEach(({ l, ls, code, cls, gate, terminus }, k) => {
-    if (k === 0) parts.push(<Stop key="s0" pos="first" name={st(l.from)} times={[[clock(l.depart), "开"]]} gate={gate} outLine={cls} />);
-    else {
-      const p = info[k - 1], wait = span(l.depart - p.l.arrive);
-      if (p.l.to === l.from) {
-        parts.push(<Stop key={`x${k}`} pos="mid" xchg name={st(l.from)} times={[[clock(p.l.arrive), "到"], [clock(l.depart), "开"]]} note={`换乘，等候${wait}`} gate={gate} inLine={p.cls} outLine={cls} />);
-      } else {
-        parts.push(<Stop key={`a${k}`} pos="mid" xchg name={st(p.l.to)} times={[[clock(p.l.arrive), "到"]]} inLine={p.cls} outLine="W" />);
-        parts.push(
-          <li key={`w${k}`} className="walk">
-            <span className="track" aria-hidden="true"><span className="bar" /></span>
-            <span className="walk-text">{st(p.l.to)}出站，到{st(l.from)}换乘，等候{wait}</span>
-          </li>
-        );
-        parts.push(<Stop key={`b${k}`} pos="mid" xchg name={st(l.from)} times={[[clock(l.depart), "开"]]} gate={gate} inLine="W" outLine={cls} />);
-      }
+  info.forEach(({ l, ls, code, cls, gate, arrGate, terminus }, k) => {
+    const p = k > 0 ? info[k - 1] : null;
+    if (p) {
+      const walk = p.l.to !== l.from;
+      parts.push(
+        <li key={`x${k}`} className={walk ? "xfer walk" : "xfer"}>
+          <span className="track" aria-hidden="true"><span className="bar" /></span>
+          <span className="xfer-text">{span(l.depart - p.l.arrive)}</span>
+        </li>
+      );
     }
+    parts.push(<Stop key={`s${k}`} name={p && p.l.to === l.from ? undefined : st(l.from)} time={clock(l.depart)} gate={gate} outLine={cls} />);
     parts.push(
       <li key={`l${k}`} className={`leg line-${cls}`}>
         <span className="track" aria-hidden="true"><span className="bar" /></span>
@@ -216,7 +216,7 @@ function RouteRow({ tt, r, date, legs, days, gates, labels, now }: {
         </span>
       </li>
     );
-    if (k === info.length - 1) parts.push(<Stop key="end" pos="last" name={st(l.to)} times={[[clock(l.arrive), "到"]]} inLine={cls} />);
+    parts.push(<Stop key={`e${k}`} name={st(l.to)} time={clock(l.arrive)} gate={arrGate} inLine={cls} />);
   });
   // one verdict for the whole route: every leg still to come needs at least one class on sale (one under way counts)
   const avail = (x: LegState) => !!x.departed || (!!x.seats && x.seats.canBuy && [x.seats.sw, x.seats.yd, x.seats.ed, x.seats.wz].some((v) => v === "有" || /^\d+$/.test(v)));
@@ -332,8 +332,12 @@ export default function App() {
           if (nowMin === null || l.depart >= nowMin + SALES_CLOSE) continue;
           runAsk.add(trainKey(tt, l, date));
         }
-        const code = s?.code || l.train, k = gateKey(code, l, date, tt);
-        gateAsk.set(k, [code, addDays(date, Math.floor(l.depart / 1440)), tt.stations[l.from].code, trainKey(tt, l, date, s).split("|")[1]]);
+        const code = s?.code || l.train, start = trainKey(tt, l, date, s).split("|")[1];
+        // where it leaves, and where it arrives (unless that is where it ends: 12306 has no 检票口 for a terminus)
+        gateAsk.set(gateKey(code, l.depart, l.from, date, tt), [code, addDays(date, Math.floor(l.depart / 1440)), tt.stations[l.from].code, start]);
+        const t = tt.trains.find((x) => x.no === l.trainNo);
+        if (!t || t.stops[t.stops.length - 3] !== l.to)
+          gateAsk.set(gateKey(code, l.arrive, l.to, date, tt), [code, addDays(date, Math.floor(l.arrive / 1440)), tt.stations[l.to].code, start]);
       }
     }
     const asked = date, wanted = () => dateNow.current === asked;

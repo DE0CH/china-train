@@ -35,9 +35,9 @@ export function seatsFor(fromCode: string, toCode: string, date: string, fresh =
   return p;
 }
 
-// A few side queries at a time (a train's run, a 检票口): each waits for a slot, and `wanted` is asked when its turn
+// Six side queries at a time (a train's run, a 检票口): each waits for a slot, and `wanted` is asked when its turn
 // comes: false (the page moved to another date) skips it.
-let slots = 3;
+let slots = 6;
 const waiting: Array<() => void> = [];
 async function inTurn<T>(wanted: () => boolean, run: () => Promise<T>): Promise<T | null> {
   if (slots > 0) slots--; else await new Promise<void>((r) => waiting.push(r));
