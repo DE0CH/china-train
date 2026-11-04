@@ -3,13 +3,14 @@ name: 检票口 short forms
 # Crawls 12306's 检票口 strings for every train (README "检票口 short forms") and rebuilds public/gate-labels.json:
 # 12306's own 检票口 query for every (train, boarding stop) of tomorrow's runs, in parallel shards, and the WeChat
 # mini-program's stops for today's runs (wicket strings of smaller stations); then `gates labels` (crawler/src/bin/
-# gates.rs). A changed table is committed to main and deployed. Every Monday after the timetable crawl, or by hand.
+# gates.rs) adds them to the table. A changed table is committed to main and deployed. Every Monday afternoon, or by
+# hand.
 on:
   push:   # a change to the crawler or this workflow runs it
     branches: [main]
     paths: [".github/workflows/gates.yml", "crawler/src/bin/gates.rs"]
   schedule:
-    - cron: "17 21 * * 0"   # Monday 05:17 Beijing time, two hours after the timetable crawl
+    - cron: "17 6 * * 1"   # Monday 14:17 Beijing time: after the timetable crawl, and the day's 检票口 are filled in
   workflow_dispatch:
 
 permissions:

@@ -5,7 +5,10 @@
 //   gates stops  TIMETABLE OUT.jsonl YYYYMMDD   I/N   the WeChat mini-program's stops for every train that day (each
 //                                                      stop's wicket; filled in for trains running today), shard I of N
 //   gates labels OUT.json IN.jsonl…                    every station's exact 检票口 strings -> a short form, where the
-//                                                      strict grammar below reads the whole string; else none
+//                                                      strict grammar below reads the whole string; else none. The
+//                                                      table already at OUT is kept and added to: a string seen once
+//                                                      stays valid, and one crawl misses some (the WeChat stops only
+//                                                      fill in a day's 检票口 during that day)
 //
 // Rows written by the crawls: {"code": telecode, "station": name, "wicket": 12306's string}.
 use anyhow::{anyhow, Result};
@@ -201,17 +204,20 @@ fn labels(out: &str, inputs: &[String]) -> Result<()> {
             if !code.is_empty() && !w.is_empty() && !w.chars().all(|c| c == '-') { seen.entry(code.to_string()).or_default().insert(w.to_string()); }
         }
     }
-    let (mut table, mut kept): (BTreeMap<&String, BTreeMap<&String, String>>, usize) = (BTreeMap::new(), 0);
+    let mut table: BTreeMap<String, BTreeMap<String, String>> =
+        std::fs::read_to_string(out).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+    let before = table.values().map(BTreeMap::len).sum::<usize>();
+    let mut kept = 0;
     for (code, raws) in &seen {
         for raw in raws {
             match label(raw) {
-                Some(l) => { table.entry(code).or_default().insert(raw, l); }
+                Some(l) => { table.entry(code.clone()).or_default().insert(raw.clone(), l); }
                 None => if !already_short().is_match(raw) { kept += 1; },
             }
         }
     }
     std::fs::write(out, serde_json::to_string(&table)?)?;
-    eprintln!("stations {}, strings {}, short forms {}, left as written {kept}",
-              seen.len(), seen.values().map(BTreeSet::len).sum::<usize>(), table.values().map(BTreeMap::len).sum::<usize>());
+    eprintln!("crawled: stations {}, strings {}, left as written {kept}; table: {} stations, {} short forms ({before} before)",
+              seen.len(), seen.values().map(BTreeSet::len).sum::<usize>(), table.len(), table.values().map(BTreeMap::len).sum::<usize>());
     Ok(())
 }
