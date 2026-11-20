@@ -1,8 +1,8 @@
 # china-train
 
 Train route planner for mainland China and Hong Kong at **https://train.deyaochen.com**: pick any two
-stations (fuzzy search on name, pinyin, English name or initials) and a date; it lists every direct train and every
-one-transfer route worth taking, with live seats from **12306** (China Railway's official site). No
+stations (fuzzy search on name, pinyin, English name or initials) and a date; it lists every route worth taking, direct or
+with any number of transfers, with live seats from **12306** (China Railway's official site). No
 API key, no daily quota.
 
 ## How it works
@@ -14,10 +14,16 @@ API key, no daily quota.
   backoff); each train's stops from `kyfw.12306.cn/otn/queryTrainInfo/query`. Two dates (a weekday
   and a weekend day) are crawled so weekend-only trains are in. 12306's own transfer planner
   (`lcquery`) is not used: it answers 没有查询到中转方案 for every route touching 香港西九龙.
-- **Planner** — `lib/planner.ts`, in the browser: direct trains plus one transfer, at the same
-  station or at another station of the same city (e.g. 福田 → 深圳北), keeping only routes no other
-  route beats on both departure and arrival. Minimum change times and the longest wait are settings
-  on the page (defaults: 15 min in one station, 60 min across town, wait ≤ 4 h).
+- **Planner** — `lib/planner.ts`, in the browser: routes with any number of transfers, each at the
+  same station or at another station of the same city (e.g. 福田 → 深圳北), keeping only routes no
+  other route beats on departure, arrival and transfers together. Trip-based routing over the
+  timetable taken as daily: from each departure at the origin, latest first, round k reaches the
+  trains boarded after k transfers; a train already boarded at that stop or an earlier one, on that
+  day or an earlier one, with no more transfers, is not boarded again, and nothing is followed that
+  cannot beat a route already found (a lower bound: the least riding time from each station to the
+  destination). That also ends the search, with no cap on transfers or days. Minimum change times
+  and the longest wait at each change are settings on the page (defaults: 15 min in one station,
+  60 min across town, wait ≤ 4 h).
 - **Live seats** — `worker/index.ts`, a Cloudflare Worker, answers
   `GET /api/query?from=深圳坪山&to=深圳北&date=YYYY-MM-DD` → `{trains:[…]}` with the JSON endpoint
   12306's own search page uses (`kyfw.12306.cn/otn/leftTicket/query<X>`): it discovers the current
