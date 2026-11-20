@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { loadTimetable, plan, searchStations, clock, span, DEFAULT_OPTIONS, type Timetable, type Route, type Leg, type PlanOptions } from "@/lib/planner";
+import { loadTimetable, plan, tripOf, searchStations, clock, span, DEFAULT_OPTIONS, type Timetable, type Route, type Leg, type PlanOptions } from "@/lib/planner";
 import { seatsFor, trainDay, gateFor, gateLabels, addDays, type Seats, type TrainDay } from "@/lib/train-api";
 
 const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -282,30 +282,45 @@ export default function App() {
   }, [tt, recent]);
   const remember = (i: number) => { if (!tt) return; const r = [tt.stations[i].name, ...recent.filter((n) => n !== tt.stations[i].name)].slice(0, 8); setRecent(r); writePrefs("recent", r); };
 
-  function search(fresh = false) {
+  // plan, ask 12306 for the seats of every leg, and plan again without the runs of trains its answers say do not run
+  // that day (the timetable takes every train as daily), until every route's trains run
+  async function search(fresh = false) {
     if (!tt || from === null || to === null || from === to) return;
     const id = ++run.current;
     writePrefs("last", [tt.stations[from].name, tt.stations[to].name]);
-    const rs = plan(tt, from, to, opts);
-    // live seats for every leg shown, a few queries at a time
-    const keys = [...new Set(rs.flatMap((r) => r.legs.map((l) => legKey(tt, l, date))))];
-    setRoutes(rs);
+    const skip = new Set<string>(), answers = new Map<string, LegQuery>();
     setLegs(new Map());
-    setTotal(keys.length);
-    setCheckedAt(keys.length ? null : new Date());
-    let next = 0, done = 0;
-    const worker = async () => {
-      while (next < keys.length && run.current === id) {
-        const k = keys[next++];
-        const [f, t, d] = k.split("|");
-        let v: LegQuery;
-        try { v = { byTrain: await seatsFor(f, t, d, fresh) }; } catch (e: any) { v = { error: e.message }; }
-        if (run.current !== id) return;
-        setLegs((m) => new Map(m).set(k, v));
-        if (++done === keys.length) setCheckedAt(new Date());
-      }
-    };
-    for (let i = 0; i < 4; i++) worker();
+    setCheckedAt(null);
+    for (;;) {
+      const rs = plan(tt, from, to, opts, skip);
+      // live seats for every leg not asked yet, a few queries at a time
+      const keys = [...new Set(rs.flatMap((r) => r.legs.map((l) => legKey(tt, l, date))))].filter((k) => !answers.has(k));
+      setRoutes(rs);
+      setTotal(answers.size + keys.length);
+      let next = 0;
+      const worker = async () => {
+        while (next < keys.length && run.current === id) {
+          const k = keys[next++];
+          const [f, t, d] = k.split("|");
+          let v: LegQuery;
+          try { v = { byTrain: await seatsFor(f, t, d, fresh) }; } catch (e: any) { v = { error: e.message }; }
+          if (run.current !== id) return;
+          answers.set(k, v);
+          setLegs((m) => new Map(m).set(k, v));
+        }
+      };
+      await Promise.all(Array.from({ length: 4 }, worker));
+      if (run.current !== id) return;
+      // a train missing from an answer does not run that day (today: unless it is within the hour before it leaves)
+      const at = new Date(), cut = date === isoDate(at) ? at.getHours() * 60 + at.getMinutes() : null;
+      const gone = rs.flatMap((r) => r.legs).filter((l) => {
+        const q = answers.get(legKey(tt, l, date))!;
+        return !q.error && !q.byTrain!.has(l.trainNo) && !(cut !== null && l.depart < cut + SALES_CLOSE);
+      }).map((l) => tripOf(tt, l)).filter((k) => !skip.has(k));
+      if (!gone.length) break;
+      gone.forEach((k) => skip.add(k));
+    }
+    setCheckedAt(new Date());
   }
   useEffect(() => { if (tt && from !== null && to !== null) search(); /* eslint-disable-next-line */ }, [tt, from, to, date, opts]);
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);

@@ -31,7 +31,9 @@ API key, no daily quota.
   rows (train_no @2, code @3, from/to telecodes @6/7, times @8/9, 商务座 @32, 一等座 @31, 二等座 @30,
   无座 @26) and keeps only rows whose boarding and alighting stations are the queried ones (12306
   also returns the rest of the city: 深圳北→香港西九龙 lists 福田 departures too). The page asks it for
-  each leg; a train missing from the answer does not run that day and its routes are hidden.
+  each leg; a train missing from the answer does not run that day, so the page plans again without
+  that run of it (and asks for the new legs) until every route's trains run: the timetable takes
+  every train as daily, and the route that does run may be one the missing train had beaten.
   12306 is reached directly from Cloudflare's network (no proxy).
 - **Hosting** — one Worker with Workers Static Assets (`wrangler.jsonc`): the built page and
   `timetable.json` are served from Cloudflare's edge without running code; only `/api/*` runs the

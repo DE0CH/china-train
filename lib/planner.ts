@@ -86,7 +86,17 @@ export const DEFAULT_OPTIONS: PlanOptions = { sameStationChange: 15, crossTownCh
 //   times an earlier change there with no more transfers, from a departure no earlier, already had on offer.
 interface State { t: number; day: number; pos: number; k: number; parent: number; at: number }
 
-export function plan(tt: Timetable, from: number, to: number, o: PlanOptions = DEFAULT_OPTIONS): Route[] {
+// one run of a train, as plan's `skip` names it: its 12306 train_no and how many minutes its times are shifted to the
+// travel day's clock (0: it left its first station on the travel date, 1440: the day after, -1440: the day before)
+export function tripOf(tt: Timetable, l: Leg): string {
+  const t = tt.trains.find((x) => x.no === l.trainNo)!, T = t.stops;
+  let p = 0;
+  while (p < T.length / 3 - 1 && !(T[p * 3] === l.from && (l.depart - T[p * 3 + 2]) % 1440 === 0)) p++;
+  return `${l.trainNo}|${l.depart - T[p * 3 + 2]}`;
+}
+
+// `skip`: runs of trains (tripOf) known not to run, which no route takes
+export function plan(tt: Timetable, from: number, to: number, o: PlanOptions = DEFAULT_OPTIONS, skip = new Set<string>()): Route[] {
   const ends = (i: number) => (o.sameCityEnds ? tt.city[i] : [i]);
   const origins = ends(from), originSet = new Set(origins), dests = new Set(ends(to));
   const stops = (t: number) => tt.trains[t].stops;
@@ -132,6 +142,7 @@ export function plan(tt: Timetable, from: number, to: number, o: PlanOptions = D
   const states: State[] = [];
   const seen: State[][] = tt.trains.map(() => []); // train → the states it was boarded in, none dominating another
   const board = (t: number, day: number, pos: number, k: number, parent: number, at: number, queue: number[]) => {
+    if (skip.size && skip.has(`${tt.trains[t].no}|${day}`)) return;
     const l = seen[t];
     for (const x of l) if (x.day <= day && x.pos <= pos && x.k <= k) return;
     const s = { t, day, pos, k, parent, at };
